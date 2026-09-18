@@ -1,0 +1,33 @@
+Flask>=3.0.0
+opencv-python==4.10.0.84
+numpy==2.1.3
+google-genai>=2.10.0
+python-dotenv==1.0.1
+ollama
+pyaudio==0.2.14
+webrtcvad-wheels>=2.0.14
+transformers>=4.44.0
+# Backend cho transformers (STT PhoWhisper) — bản CPU đơn giản nhất, đủ dùng vì model STT ở
+# đây luôn chạy CPU (dành VRAM cho Ollama). Có GPU NVIDIA và muốn STT chạy CUDA thì tự cài lại
+# theo hướng dẫn ở https://pytorch.org/get-started/locally/ (cần --index-url riêng cho bản cu1xx).
+torch==2.7.1
+# Nhận diện khuôn mặt (core/face_engine.py) — deepface kéo theo tensorflow.
+tensorflow==2.21.0
+deepface==0.0.100
+pyyaml==6.0.2
+Pillow==11.0.0
+pygame==2.6.1
+tabulate>=0.9.0
+psutil>=6.0.0
+edge-tts>=7.0.0
+librosa>=0.11.0
+deepface>=0.0.90
+# resemblyzer khai báo phụ thuộc "webrtcvad" (bản gốc, cần Visual C++ Build Tools để biên dịch trên
+# Windows) — nhưng webrtcvad-wheels ở trên đã cung cấp sẵn cùng module rồi. Cài bằng:
+#   pip install resemblyzer --no-deps
+# thay vì cài thẳng từ file này, nếu không sẽ lỗi build trên Windows.
+resemblyzer>=0.1.4
+# torch không cài được thẳng từ dòng thường (transformers/resemblyzer cần torch nhưng không tự
+# kéo theo) — cài riêng theo phần cứng, SAU khi đã cài xong các dòng phía trên:
+#   Có GPU NVIDIA (driver hỗ trợ CUDA 12.x): pip install torch --index-url https://download.pytorch.org/whl/cu124
+#   Không có GPU / chỉ chạy CPU:              pip install torch

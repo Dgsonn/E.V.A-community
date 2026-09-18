@@ -1,0 +1,25 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Dữ liệu sinh ra lúc chạy / cá nhân — không thuộc về source code
+assets/tts_cache/
+assets/eva.db
+assets/owner_face.json
+assets/owner_voice.json
+assets/voice_profiles.json
+assets/tailscale.crt
+assets/tailscale.key
+*.db-journal
+screenshots/
+logs/
+
+# Claude Code local state
+.claude/
+
+# Log chạy nền khi EVA chạy an (pythonw.exe, xem start_eva.bat) - khong phai source code
+eva.log

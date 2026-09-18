@@ -1,0 +1,65 @@
+eva:
+  name: EVA
+  wake_word: "dậy đi"          # đánh thức từ chế độ chờ — dùng từ tiếng Việt thật để Whisper nhận ổn định
+  wake_word_aliases: ["dậy đi", "dạy đi", "dậy nào", "thức dậy"]
+  sleep_word: "tạm biệt"          # quay lại chế độ chờ, kết thúc phiên đang hoạt động — duy trì vô thời hạn tới khi nghe từ này
+  sleep_word_aliases: ["tạm biệt", "chào tạm biệt", "thôi nhé", "bái bai"]
+  interrupt_word: "dừng lại"      # ngắt lời EVA khi đang phát TTS — chỉ khớp lúc đang nói, không ảnh hưởng lệnh bình thường
+  interrupt_word_aliases: ["dừng lại", "dừng lại đi", "dừng nói", "khoan đã"]  # cố tình dùng cụm dài, tránh từ đơn ngắn ("dừng", "thôi") dễ trúng nhầm do mic bắt lại tiếng EVA tự nói
+  language: vi
+
+camera:
+  index: 0
+  width: 1280
+  height: 720
+  fps: 30
+
+voice:
+  security_enabled: false  # false = vẫn nhận diện & hiển thị đúng tên người đang nói, nhưng KHÔNG chặn ai cả (đánh thức/dùng tool thoải mái); true = bật lại chặn giọng lạ như trước
+  model: large           # PhoWhisper (vinai/PhoWhisper-<model>) — model Whisper chuyên biệt cho tiếng Việt, thay cho Whisper đa ngôn ngữ gốc hay dịch sai/ảo giác. Nâng từ medium lên large để giảm ảo giác/nghe sai câu lệnh — LƯU Ý: cộng dồn với qwen2.5:14b (Ollama offline) có thể vượt 12GB VRAM nếu vừa offline vừa dùng voice cùng lúc, xem core/temp_monitor.py không theo dõi VRAM nên không tự cảnh báo được trường hợp này
+  language: vi
+  vad_aggressiveness: 2  # webrtcvad: 0 (lỏng) - 3 (chặt nhất, dễ cắt mất giọng nhỏ)
+  mic_gain: 4.0           # khuếch đại tín hiệu mic trước khi phát hiện giọng nói — tăng nếu vẫn khó nghe, giảm nếu bị vỡ tiếng/ồn
+  voice_confirm_frames: 3  # số khung 30ms liên tiếp phải là giọng nói mới xác nhận bắt đầu ghi — chống trúng nhiễu nền tức thời
+  mic_index: 1           # Microphone (USBFH10) — tai nghe cắm ngoài. Index PyAudio có thể đổi mỗi khi cắm/rút thiết bị âm thanh khác, kiểm tra lại qua log "[STT] Danh sách microphone khả dụng" mỗi lần EVA khởi động nếu voice lại lỗi
+  min_record_secs: 0.5   # Thời lượng tối thiểu phải thu được mới coi là câu nói
+  silence_secs: 1.2      # Ngưỡng im lặng để dừng ghi
+  clap_wake_enabled: true       # Cho phép vỗ tay/búng tay (2 tiếng liên tiếp) đánh thức thay wakeword
+  clap_threshold_multiplier: 5.0  # Biên độ phải cao hơn nền bao nhiêu lần mới tính là 1 tiếng vỗ
+  clap_window_secs: 1.5          # Khoảng cách tối đa giữa 2 tiếng vỗ để tính là 1 lần đánh thức
+
+ai:
+  model: qwen2.5:14b  # Nâng từ 7b lên 14b (~9GB VRAM, có GPU RTX 3060 12GB) — suy luận tốt hơn. Nếu sau này đổi máy/GPU yếu hơn, hạ về qwen2.5:latest (7b, ~4.7GB)
+  max_history: 10
+  temperature: 0.7
+
+health:
+  # Nhắc cố định hàng ngày theo lời bác sĩ dặn (dậy ăn sáng + uống thuốc) — khác HealthMonitor/
+  # ActivityMonitor (dựa trên dữ liệu/hành vi), đây chỉ đơn giản báo đúng giờ mỗi ngày.
+  daily_reminder_time: "07:00"
+  daily_reminder_message: "Sơn ơi, đã đến giờ dậy ăn sáng và uống thuốc theo đúng lời bác sĩ dặn rồi đó — đừng bỏ qua nhé."
+
+system:
+  # Máy chạy 24/7 làm server (xem core/temp_monitor.py) — cảnh báo chủ động nếu GPU vượt ngưỡng
+  # này (độ C), để kịp tắt máy cho nguội trước khi hỏng phần cứng. Chỉ đọc được GPU (nvidia-smi),
+  # chưa hỗ trợ CPU.
+  gpu_temp_warning_c: 80
+
+hud:
+  opacity: 0.85
+  theme: cyan
+  position: top-right
+
+dev:
+  # Whitelist tên dự án -> đường dẫn, dùng cho tool git_status/git_log (core/tools.py) — bắt
+  # buộc phải cấu hình trước, không cho gõ đường dẫn tuỳ ý qua giọng nói/chat để tránh git chạy
+  # vào bất kỳ thư mục nào trên máy. Thêm dự án khác bằng cách thêm dòng mới, vd:
+  #   my_project: "D:\\path\\to\\project"
+  projects:
+    eva: "E:\\E.V.A"
+  # Whitelist tên file log -> đường dẫn thật, dùng cho tool tail_log_file — cùng lý do trên,
+  # không cho đọc file tuỳ ý trên máy. Để trống nếu chưa có log file nào cần theo dõi, vd:
+  #   log_files:
+  #     my_app: "C:\\path\\to\\app.log"
+  log_files:
+    eva: "E:\\E.V.A\\eva.log"

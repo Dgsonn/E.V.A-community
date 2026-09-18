@@ -1,0 +1,125 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #05080f;
+  --bg-glow: radial-gradient(circle at 50% 0%, rgba(45, 212, 255, 0.08), transparent 60%);
+  --panel: rgba(12, 22, 35, 0.72);
+  --panel-solid: #0b1622;
+  --panel-2: #0f1d2c;
+  --border: rgba(45, 212, 255, 0.14);
+  --border-strong: rgba(45, 212, 255, 0.4);
+  --cyan: #2dd4ff;
+  --cyan-dim: rgba(45, 212, 255, 0.14);
+  --text: #e6f4fa;
+  --text-dim: #6f8ea3;
+  --green: #3ddc84;
+  --red: #ff5c5c;
+  --font-display: var(--font-display), ui-monospace, monospace;
+  --font-body: var(--font-body), system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  background: var(--bg);
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--text);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes spin-reverse {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+@keyframes pulse-glow {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+@keyframes fade-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin 20s linear infinite;
+}
+.animate-spin-slow-reverse {
+  animation: spin-reverse 26s linear infinite;
+}
+.animate-pulse-glow {
+  animation: pulse-glow 3.2s ease-in-out infinite;
+}
+.animate-msg-in {
+  animation: fade-slide-in 0.25s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin-slow,
+  .animate-spin-slow-reverse,
+  .animate-pulse-glow {
+    animation: none;
+  }
+}
+
+.panel-glass {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(14px);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.02) inset,
+    0 20px 50px -30px rgba(0, 0, 0, 0.9);
+}
+
+.section-label {
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.section-label::before {
+  content: "// ";
+  color: var(--cyan);
+}
