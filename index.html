@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>EVA Đồng Hành</title>
+<meta name="description" content="EVA — trợ lý giọng nói tiếng Việt giúp người cao tuổi và người khiếm thị dùng máy tính dễ dàng hơn, theo dõi sức khoẻ và gọi trợ giúp khi cần. Dự án dự thi RE:ACT — Inclusive Digital Livelihoods.">
+<meta property="og:title" content="EVA Đồng Hành">
+<meta property="og:description" content="Trợ lý giọng nói tiếng Việt cho người cao tuổi và người khiếm thị — RE:ACT, Inclusive Digital Livelihoods.">
+<meta property="og:type" content="website">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --bg:#F6F3EC;
+    --surface:#FFFFFF;
+    --surface-2:#EFEAE0;
+    --border:#E1D9C9;
+    --ink:#17232B;
+    --ink-dim:#55636B;
+    --amber:#B97A1E;
+    --amber-ink:#7A4E0F;
+    --teal:#2F8577;
+    --hero-bg:#132430;
+    --hero-ink:#F2EFE7;
+    --hero-ink-dim:#AAB9C0;
+    --radius-lg:22px;
+    --radius-sm:10px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#10202E;
+      --surface:#16273A;
+      --surface-2:#1C3049;
+      --border:rgba(255,255,255,0.12);
+      --ink:#F2EFE7;
+      --ink-dim:#A9B8C2;
+      --amber:#E3A854;
+      --amber-ink:#F3D9A6;
+      --teal:#5FC2B2;
+      --hero-bg:#0B1720;
+      --hero-ink:#F2EFE7;
+      --hero-ink-dim:#8CA0AA;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#10202E;
+    --surface:#16273A;
+    --surface-2:#1C3049;
+    --border:rgba(255,255,255,0.12);
+    --ink:#F2EFE7;
+    --ink-dim:#A9B8C2;
+    --amber:#E3A854;
+    --amber-ink:#F3D9A6;
+    --teal:#5FC2B2;
+    --hero-bg:#0B1720;
+    --hero-ink:#F2EFE7;
+    --hero-ink-dim:#8CA0AA;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'IBM Plex Sans', Arial, sans-serif;
+    font-size:17px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3{
+    font-family:'Fraunces', Georgia, serif;
+    font-weight:600;
+    line-height:1.12;
+    text-wrap:balance;
+    margin:0;
+  }
+  p{margin:0}
+  a{color:inherit}
+  img,svg{max-width:100%}
+  .wrap{max-width:1120px;margin:0 auto;padding-inline:20px}
+  section{padding-block:88px}
+  @media (max-width:640px){ section{padding-block:56px} }
+
+  .skip-link{
+    position:absolute;left:16px;top:-100%;z-index:100;
+    background:var(--amber);color:#1a1204;font-weight:700;
+    padding:10px 18px;border-radius:var(--radius-sm);
+    transition:top .15s ease;
+  }
+  .skip-link:focus{top:12px}
+
+  :focus-visible{outline:3px solid var(--amber);outline-offset:2px;border-radius:4px}
+
+  /* ---------- nav ---------- */
+  header.site{
+    position:sticky;top:env(safe-area-inset-top,0px);z-index:20;
+    background:color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--border);
+  }
+  .navrow{
+    display:flex;align-items:center;justify-content:space-between;
+    gap:16px;padding-block:16px;flex-wrap:wrap;
+  }
+  .wordmark{
+    font-family:'Fraunces', Georgia, serif;font-weight:700;font-size:22px;
+    letter-spacing:0.02em;
+  }
+  nav.links{display:flex;gap:22px;flex-wrap:wrap;font-size:15px}
+  nav.links a{text-decoration:none;color:var(--ink-dim);border-bottom:1px solid transparent}
+  nav.links a:hover{color:var(--ink);border-color:var(--amber)}
+
+  .btn{
+    display:inline-flex;align-items:center;gap:8px;
+    padding:13px 24px;border-radius:100px;
+    font-weight:600;font-size:15px;text-decoration:none;
+    border:1px solid transparent;cursor:pointer;
+  }
+  .btn-primary{background:var(--amber);color:#1a1204}
+  .btn-primary:hover{filter:brightness(1.06)}
+  .btn-ghost{border-color:var(--border);color:var(--ink)}
+  .btn-ghost:hover{border-color:var(--amber)}
+
+  /* ---------- hero ---------- */
+  .hero{
+    background:var(--hero-bg);color:var(--hero-ink);
+    padding-block:96px 80px;
+  }
+  .hero .wrap{
+    display:grid;grid-template-columns:1.15fr 0.85fr;gap:56px;align-items:center;
+  }
+  @media (max-width:840px){ .hero .wrap{grid-template-columns:1fr} }
+  .eyebrow{
+    font-size:13px;letter-spacing:0.16em;text-transform:uppercase;
+    color:var(--amber-ink,var(--amber));font-weight:600;margin-bottom:18px;
+  }
+  .hero h1{font-size:clamp(32px,5vw,54px);color:var(--hero-ink)}
+  .hero p.lead{
+    margin-top:22px;font-size:19px;color:var(--hero-ink-dim);max-width:46ch;
+  }
+  .hero .ctas{display:flex;gap:14px;margin-top:34px;flex-wrap:wrap}
+
+  .waveform{
+    display:flex;align-items:flex-end;gap:6px;height:180px;
+    padding:24px;background:rgba(255,255,255,0.03);
+    border:1px solid rgba(255,255,255,0.10);border-radius:var(--radius-lg);
+  }
+  .waveform .bar{
+    flex:1;border-radius:6px;background:linear-gradient(180deg, var(--teal), var(--amber));
+    animation:bob 2.4s ease-in-out infinite;
+  }
+  @keyframes bob{ 0%,100%{transform:scaleY(0.35)} 50%{transform:scaleY(1)} }
+  @media (prefers-reduced-motion: reduce){ .waveform .bar{animation:none;transform:scaleY(0.7)} }
+
+  /* ---------- section heads ---------- */
+  .head{max-width:56ch;margin-bottom:44px}
+  .head h2{font-size:clamp(26px,3.4vw,38px)}
+  .head p{margin-top:14px;color:var(--ink-dim);font-size:17px}
+
+  /* ---------- problem ---------- */
+  .problem-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;background:var(--border);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
+  @media (max-width:780px){ .problem-grid{grid-template-columns:1fr} }
+  .problem-cell{background:var(--surface);padding:32px}
+  .problem-cell h3{font-size:20px;margin-bottom:10px}
+  .problem-cell p{color:var(--ink-dim);font-size:15.5px}
+
+  /* ---------- solution ---------- */
+  .feat-lead{
+    display:grid;grid-template-columns:1.1fr 0.9fr;gap:40px;align-items:center;
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);
+    padding:40px;margin-bottom:24px;
+  }
+  @media (max-width:780px){ .feat-lead{grid-template-columns:1fr} }
+  .feat-lead h3{font-size:26px;margin-bottom:12px}
+  .feat-lead p{color:var(--ink-dim)}
+  .feat-visual{
+    aspect-ratio:4/3;border-radius:var(--radius-sm);
+    background:
+      radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--teal) 35%, transparent), transparent 60%),
+      var(--surface-2);
+    display:flex;align-items:center;justify-content:center;
+    border:1px solid var(--border);
+  }
+  .feat-visual span{font-family:'Fraunces',serif;font-size:15px;color:var(--ink-dim);padding:0 24px;text-align:center}
+
+  .feat-row{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  @media (max-width:780px){ .feat-row{grid-template-columns:1fr} }
+  .feat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:32px}
+  .feat-card h3{font-size:21px;margin-bottom:10px}
+  .feat-card p{color:var(--ink-dim);font-size:15.5px}
+  .tag{
+    display:inline-block;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;
+    color:var(--teal);font-weight:700;margin-bottom:10px;
+  }
+
+  /* ---------- how it works ---------- */
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;counter-reset:step}
+  @media (max-width:780px){ .steps{grid-template-columns:1fr} }
+  .step{position:relative;padding:28px 24px 24px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg)}
+  .step .num{
+    font-family:'Fraunces',serif;font-size:15px;color:var(--amber);font-weight:700;
+    display:block;margin-bottom:14px;
+  }
+  .step h3{font-size:19px;margin-bottom:8px}
+  .step p{color:var(--ink-dim);font-size:15px}
+
+  /* ---------- roadmap ---------- */
+  .timeline{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border)}
+  @media (max-width:780px){ .timeline{grid-template-columns:1fr} }
+  .tphase{padding:32px;background:var(--surface);border-left:3px solid var(--amber)}
+  .tphase + .tphase{border-top:1px solid var(--border)}
+  @media (min-width:781px){
+    .tphase{border-left:none;border-top:3px solid var(--amber)}
+    .tphase + .tphase{border-top:3px solid var(--amber);border-left:1px solid var(--border)}
+  }
+  .tphase .when{font-size:13px;letter-spacing:0.1em;text-transform:uppercase;color:var(--amber);font-weight:700}
+  .tphase h3{font-size:20px;margin:10px 0}
+  .tphase p{color:var(--ink-dim);font-size:15px}
+  .roadmap-note{margin-top:20px;font-size:14.5px;color:var(--ink-dim)}
+
+  /* ---------- team ---------- */
+  .team-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px}
+  @media (max-width:980px){ .team-grid{grid-template-columns:repeat(2,1fr)} }
+  @media (max-width:560px){ .team-grid{grid-template-columns:1fr} }
+  .member{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:28px}
+  .member.open{border-style:dashed;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:8px}
+  .avatar{
+    width:44px;height:44px;border-radius:50%;
+    background:linear-gradient(135deg, var(--teal), var(--amber));
+    margin-bottom:16px;
+  }
+  .member h3{font-size:18px}
+  .member .role{color:var(--amber-ink,var(--amber));font-size:13.5px;font-weight:600;margin:4px 0 10px}
+  .member p.bio{color:var(--ink-dim);font-size:14.5px}
+
+  /* ---------- project docs ---------- */
+  .doc-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px}
+  @media (max-width:980px){ .doc-grid{grid-template-columns:repeat(2,1fr)} }
+  @media (max-width:560px){ .doc-grid{grid-template-columns:1fr} }
+  .doc-card{
+    display:flex;flex-direction:column;gap:10px;
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);
+    padding:26px;text-decoration:none;color:var(--ink);
+  }
+  .doc-card:hover{border-color:var(--amber)}
+  .doc-card .doc-kind{font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:var(--teal);font-weight:700}
+  .doc-card h3{font-size:18px}
+  .doc-card .doc-go{margin-top:auto;font-size:14px;color:var(--amber-ink,var(--amber));font-weight:600}
+  .doc-card.disabled{opacity:0.55;pointer-events:none;border-style:dashed}
+
+  /* ---------- contact / footer ---------- */
+  footer{background:var(--hero-bg);color:var(--hero-ink);padding-block:72px 40px}
+  footer .wrap{display:flex;flex-direction:column;gap:28px}
+  footer .row{display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;align-items:flex-end}
+  footer h2{color:var(--hero-ink);font-size:clamp(24px,3vw,34px);max-width:20ch}
+  footer .meta{color:var(--hero-ink-dim);font-size:14px}
+  footer .fine{border-top:1px solid rgba(255,255,255,0.1);padding-top:24px;font-size:13px;color:var(--hero-ink-dim)}
+</style>
+</head>
+<body>
+
+<a href="#main" class="skip-link">Bỏ qua, vào nội dung chính</a>
+
+<header class="site">
+  <div class="wrap navrow">
+    <div class="wordmark">EVA</div>
+    <nav class="links" aria-label="Điều hướng trang">
+      <a href="#vande">Vấn đề</a>
+      <a href="#giaiphap">Giải pháp</a>
+      <a href="#cachhoatdong">Cách hoạt động</a>
+      <a href="#lotrinh">Lộ trình</a>
+      <a href="#doingu">Đội ngũ</a>
+      <a href="#tailieu">Tài liệu</a>
+    </nav>
+    <a class="btn btn-primary" href="#lienhe">Liên hệ hợp tác</a>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero">
+    <div class="wrap">
+      <div>
+        <p class="eyebrow">RE:ACT — Inclusive Digital Livelihoods</p>
+        <h1>EVA nghe trước khi bạn phải tìm cách nói cho máy hiểu</h1>
+        <p class="lead">Trợ lý giọng nói tiếng Việt giúp người cao tuổi và người khiếm thị dùng máy tính dễ dàng hơn, theo dõi sức khoẻ mỗi ngày, và không bao giờ một mình khi cần trợ giúp.</p>
+        <div class="ctas">
+          <a class="btn btn-primary" href="#lienhe">Liên hệ hợp tác</a>
+          <a class="btn btn-ghost" href="#cachhoatdong">Xem cách hoạt động</a>
+        </div>
+      </div>
+      <div class="waveform" role="img" aria-label="Minh hoạ sóng âm giọng nói">
+        <div class="bar" style="animation-delay:0s"></div>
+        <div class="bar" style="animation-delay:.15s"></div>
+        <div class="bar" style="animation-delay:.3s"></div>
+        <div class="bar" style="animation-delay:.1s"></div>
+        <div class="bar" style="animation-delay:.4s"></div>
+        <div class="bar" style="animation-delay:.05s"></div>
+        <div class="bar" style="animation-delay:.35s"></div>
+        <div class="bar" style="animation-delay:.2s"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="vande">
+    <div class="wrap">
+      <div class="head">
+        <h2>Công nghệ hiện có bỏ quên ai?</h2>
+        <p>Hai rào cản chồng lên nhau: khó tiếp cận thiết bị, và không ai biết khi có chuyện xảy ra.</p>
+      </div>
+      <div class="problem-grid">
+        <div class="problem-cell">
+          <h3>Khoảng cách số ngày càng rộng</h3>
+          <p>Người khiếm thị và người cao tuổi khó dùng máy tính/điện thoại do rào cản thị giác, thao tác, hoặc chưa quen công nghệ.</p>
+        </div>
+        <div class="problem-cell">
+          <h3>Sống một mình, rủi ro âm thầm</h3>
+          <p>Té ngã, bệnh trở nặng hay bỏ thuốc thường không được phát hiện kịp thời khi người thân ở xa.</p>
+        </div>
+        <div class="problem-cell">
+          <h3>Trợ lý ảo chưa dành cho họ</h3>
+          <p>Trợ lý ảo phổ biến đòi hỏi nhìn màn hình, thao tác chạm — không phù hợp người khiếm thị hay người lớn tuổi ít quen công nghệ.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="giaiphap" style="background:var(--surface-2)">
+    <div class="wrap">
+      <div class="head">
+        <h2>EVA — người bạn đồng hành bằng giọng nói</h2>
+        <p>Một trợ lý được thiết kế voice-first ngay từ đầu, không phải một giao diện đồ hoạ được "thêm" giọng nói vào sau.</p>
+      </div>
+
+      <div class="feat-lead">
+        <div>
+          <span class="tag">Trụ cột chính</span>
+          <h3>Điều khiển 100% bằng giọng nói</h3>
+          <p>Đánh thức bằng từ khoá hoặc vỗ tay, mở ứng dụng, tìm kiếm, hẹn giờ — hoàn toàn bằng tiếng Việt tự nhiên, không cần nhìn màn hình hay thao tác chuột/bàn phím. Nhận diện giọng nói xử lý cục bộ trên máy.</p>
+        </div>
+        <div class="feat-visual"><span>Wake word → nhận diện giọng nói tiếng Việt (PhoWhisper) → hành động thật</span></div>
+      </div>
+
+      <div class="feat-row">
+        <div class="feat-card">
+          <span class="tag">Sức khoẻ</span>
+          <h3>Theo dõi chủ động</h3>
+          <p>Nhắc thuốc/ăn theo nhiều khung giờ, ghi nhận sức khoẻ qua giọng nói, tự phát hiện bất thường như ngủ ít liên tục hay triệu chứng lặp lại.</p>
+        </div>
+        <div class="feat-card">
+          <span class="tag">An toàn</span>
+          <h3>Gọi trợ giúp tức thì</h3>
+          <p>Một câu nói báo ngay cho người thân qua Telegram, kể cả khi không có ai ở gần nghe thấy EVA nói.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="cachhoatdong">
+    <div class="wrap">
+      <div class="head">
+        <h2>Đơn giản như một cuộc trò chuyện</h2>
+        <p>Không có menu, không có màn hình phải học cách dùng.</p>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <span class="num">01</span>
+          <h3>Nói với EVA</h3>
+          <p>Đánh thức bằng từ khoá "dậy đi" hoặc vỗ tay hai lần, rồi nói lệnh tự nhiên.</p>
+        </div>
+        <div class="step">
+          <span class="num">02</span>
+          <h3>EVA hiểu & hành động</h3>
+          <p>Nhận diện giọng nói tiếng Việt, xử lý cục bộ trên máy, thực hiện đúng yêu cầu.</p>
+        </div>
+        <div class="step">
+          <span class="num">03</span>
+          <h3>An toàn & kết nối</h3>
+          <p>Việc được hoàn thành, sức khoẻ được ghi nhận, người thân được báo khi cần.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="lotrinh" style="background:var(--surface-2)">
+    <div class="wrap">
+      <div class="head">
+        <h2>Lộ trình 6 tháng cùng Living Lab</h2>
+        <p>Từ MVP đến sản phẩm dùng thật mỗi ngày — mô hình co-creation với người dùng thật, không phải phát triển trong phòng kín.</p>
+      </div>
+      <div class="timeline">
+        <div class="tphase">
+          <p class="when">Tháng 1–2</p>
+          <h3>Chuẩn bị & usability</h3>
+          <p>Consent dữ liệu, hạ cấu hình phần cứng, thử với người dùng thật đầu tiên, chọn đối tác Living Lab.</p>
+        </div>
+        <div class="tphase">
+          <p class="when">Tháng 3–4</p>
+          <h3>Triển khai & lặp</h3>
+          <p>Lắp đặt tại Living Lab, dùng hàng ngày thật, sửa theo phản hồi thật, mở rộng thêm người dùng.</p>
+        </div>
+        <div class="tphase">
+          <p class="when">Tháng 5–6</p>
+          <h3>Mở rộng & Demo Day</h3>
+          <p>Đo tác động bằng số liệu thật, chuẩn bị tài liệu vận hành, trình bày kết quả tại Demo Day.</p>
+        </div>
+      </div>
+      <p class="roadmap-note">Chi tiết đầy đủ từng tháng có trong tài liệu kế hoạch 6 tháng của dự án — gửi kèm khi liên hệ.</p>
+    </div>
+  </section>
+
+  <section id="doingu">
+    <div class="wrap">
+      <div class="head">
+        <h2>Những người đứng sau EVA</h2>
+        <p>Đội ngũ hiện mạnh về kỹ thuật, đang tìm thêm người có kinh nghiệm làm việc trực tiếp với cộng đồng.</p>
+      </div>
+      <div class="team-grid">
+        <div class="member">
+          <div class="avatar" aria-hidden="true"></div>
+          <h3>Dương Trường Sơn</h3>
+          <p class="role">Trưởng nhóm, kỹ thuật viên chính</p>
+          <p class="bio">Phụ trách kiến trúc hệ thống và phát triển sản phẩm.</p>
+        </div>
+        <div class="member">
+          <div class="avatar" aria-hidden="true"></div>
+          <h3>Nguyễn Phương Nam</h3>
+          <p class="role">Thiết kế UX/UI</p>
+          <p class="bio">Đảm bảo trải nghiệm dễ tiếp cận cho người cao tuổi và người khiếm thị.</p>
+        </div>
+        <div class="member">
+          <div class="avatar" aria-hidden="true"></div>
+          <h3>Trần Quang Thành</h3>
+          <p class="role">Kỹ thuật viên AI</p>
+          <p class="bio">Phát triển và tối ưu nhận diện giọng nói, xử lý ngôn ngữ tự nhiên.</p>
+        </div>
+        <div class="member">
+          <div class="avatar" aria-hidden="true"></div>
+          <h3>Nguyễn Thị Xuân Nhi</h3>
+          <p class="role">Marketing & khảo sát người dùng</p>
+          <p class="bio">Kết nối đối tác Living Lab, thu thập phản hồi thực tế.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tailieu" style="background:var(--surface-2)">
+    <div class="wrap">
+      <div class="head">
+        <h2>Tài liệu đầy đủ</h2>
+        <p>Toàn bộ tài liệu nộp cho RE:ACT đều truy cập được từ đây — chỉ cần một đường dẫn duy nhất tới trang này.</p>
+      </div>
+      <div class="doc-grid">
+        <a class="doc-card" href="https://claude.ai/artifact/WNpPZ9WrxD3FmJVqh2S5gW" target="_blank" rel="noopener">
+          <span class="doc-kind">Pitch deck</span>
+          <h3>Trình bày dự án</h3>
+          <span class="doc-go">Xem trực tuyến →</span>
+        </a>
+        <a class="doc-card" href="https://claude.ai/artifact/R3sbWjQJYzKPuWmqTkLNN2" target="_blank" rel="noopener">
+          <span class="doc-kind">Kế hoạch</span>
+          <h3>Hoạt động & kinh doanh</h3>
+          <span class="doc-go">Đọc tài liệu →</span>
+        </a>
+        <a class="doc-card" href="https://claude.ai/artifact/RZ4d9KKxYRst36ro8GjNzk" target="_blank" rel="noopener">
+          <span class="doc-kind">Kế hoạch</span>
+          <h3>Marketing</h3>
+          <span class="doc-go">Đọc tài liệu →</span>
+        </a>
+        <span class="doc-card disabled">
+          <span class="doc-kind">Video</span>
+          <h3>Demo thử nghiệm thật</h3>
+          <span class="doc-go">Sắp cập nhật</span>
+        </span>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer id="lienhe">
+  <div class="wrap">
+    <div class="row">
+      <h2>Cùng đưa EVA đến với những người cần nó nhất.</h2>
+      <a class="btn btn-primary" href="mailto:contact@example.com">contact@example.com</a>
+    </div>
+    <p class="meta">[Tên đội] · Thử thách thanh niên đổi mới sáng tạo vì cộng đồng bền vững (RE:ACT)</p>
+    <div class="fine">© 2026 EVA. Trang này dùng cho mục đích giới thiệu dự án tới đối tác và Ban tổ chức.</div>
+  </div>
+</footer>
+
+</body>
+</html>
