@@ -39,8 +39,12 @@ def run():
     # Khởi tạo các module
     # Camera là tính năng phụ, chỉ mở khi được yêu cầu (xem ensure_camera/release_camera) —
     # dùng để nhận diện chủ nhân, không hiển thị lên đâu cả (giao diện duy nhất là dashboard web)
+    # Cách EVA gọi người dùng chính — đổi qua config/settings.yaml (user.address_term),
+    # dùng chung cho TTS (câu preload) và các module cảnh báo/nhắc nhở chủ động bên dưới.
+    address_term = config.get("user", {}).get("address_term", "Sơn")
+
     cap_holder = [None]
-    tts = TTSEngine()
+    tts = TTSEngine(config)
     ai_brain = AIBrain(config)
     voice = VoiceEngine(config)
     face_engine = FaceEngine()
@@ -109,29 +113,33 @@ def run():
 
     # Theo dõi sức khoẻ chủ động — tự lên tiếng khi phát hiện bất thường trong health_logs
     # (vd ngủ ít liên tục), không cần Sơn hỏi trước.
-    health_monitor = HealthMonitor(db, speak_callback=on_proactive_alert)
+    health_monitor = HealthMonitor(db, speak_callback=on_proactive_alert, address_term=address_term)
     health_monitor.start()
 
     # Suy đoán giấc ngủ tự động từ hành vi dùng máy (không cần Sơn tự khai) — tự ghi vào
     # health_logs cùng category "giấc ngủ", health_monitor phía trên đọc chung dữ liệu này.
     # speak_callback dùng cho cảnh báo thức trắng đêm (tín hiệu ngược: hoạt động liên tục
     # không nghỉ, thay vì im lặng).
-    activity_monitor = ActivityMonitor(speak_callback=on_proactive_alert)
+    activity_monitor = ActivityMonitor(speak_callback=on_proactive_alert, address_term=address_term)
     activity_monitor.start()
 
     # Nhắc cố định hàng ngày theo lời bác sĩ dặn (dậy ăn sáng + uống thuốc) — giờ lấy từ config,
-    # chỉnh trong config/settings.yaml (health.daily_reminder_time) nếu cần đổi.
+    # chỉnh trong config/settings.yaml (health.daily_reminder_time) nếu cần đổi. Message có thể
+    # chứa "{ten}", được thay bằng address_term (cả giá trị mặc định lẫn giá trị tự cấu hình).
     health_cfg = config.get("health", {})
+    daily_message_template = health_cfg.get(
+        "daily_reminder_message", "{ten} ơi, đã đến giờ dậy ăn sáng và uống thuốc rồi đó."
+    )
     daily_reminder = DailyReminder(
         reminder_time=health_cfg.get("daily_reminder_time", "07:00"),
-        message=health_cfg.get("daily_reminder_message", "Sơn ơi, đã đến giờ dậy ăn sáng và uống thuốc rồi đó."),
+        message=daily_message_template.format(ten=address_term),
         speak_callback=on_proactive_alert,
     )
     daily_reminder.start()
 
-    # Nhắc nhở tuỳ ý do Sơn tự đặt qua tool set_reminder (core/tools.py) — khác daily_reminder
-    # ở trên (cố định, lặp lại mỗi ngày), đây là nhắc đúng 1 lần vào thời điểm đã hẹn.
-    reminder_scheduler = ReminderScheduler(db, speak_callback=on_proactive_alert)
+    # Nhắc nhở tuỳ ý do người dùng tự đặt qua tool set_reminder (core/tools.py) — khác
+    # daily_reminder ở trên (cố định, lặp lại mỗi ngày), đây là nhắc đúng 1 lần vào thời điểm đã hẹn.
+    reminder_scheduler = ReminderScheduler(db, speak_callback=on_proactive_alert, address_term=address_term)
     reminder_scheduler.start()
 
     # Theo dõi nhiệt độ GPU chủ động — máy chạy 24/7 làm server, cần cảnh báo sớm nếu quá nóng
@@ -140,6 +148,7 @@ def run():
     temp_monitor = TempMonitor(
         warning_c=system_cfg.get("gpu_temp_warning_c", 80),
         speak_callback=on_proactive_alert,
+        address_term=address_term,
     )
     temp_monitor.start()
 
@@ -150,15 +159,15 @@ def run():
         text_lower = text.lower().strip()
         if any(p in text_lower for p in CAMERA_ON_TRIGGERS):
             show_camera[0] = True
-            on_ai_response("Đã bật camera, Sơn.")
+            on_ai_response(f"Đã bật camera, {address_term}.")
             if extra_callback:
-                extra_callback("Đã bật camera, Sơn.")
+                extra_callback(f"Đã bật camera, {address_term}.")
             return
         if any(p in text_lower for p in CAMERA_OFF_TRIGGERS):
             show_camera[0] = False
-            on_ai_response("Đã tắt camera, Sơn.")
+            on_ai_response(f"Đã tắt camera, {address_term}.")
             if extra_callback:
-                extra_callback("Đã tắt camera, Sơn.")
+                extra_callback(f"Đã tắt camera, {address_term}.")
             return
 
         def combined(reply):
@@ -189,8 +198,8 @@ def run():
         ai_brain.ask(text, callback=combined, is_owner=owner, source=source)
 
     # Câu chào khi vừa nghe thấy từ đánh thức ("dậy đi") — phát trước khi xử lý lệnh (nếu có).
-    # Dùng đúng tên người vừa đánh thức (đa hồ sơ giọng nói) thay vì mặc định "Sơn".
-    voice.on_wake = lambda name=None: on_ai_response(f"Hệ thống đã online. Tôi đã sẵn sàng phục vụ, {name or 'Sơn'}.")
+    # Dùng đúng tên người vừa đánh thức (đa hồ sơ giọng nói) thay vì mặc định address_term.
+    voice.on_wake = lambda name=None: on_ai_response(f"Hệ thống đã online. Tôi đã sẵn sàng phục vụ, {name or address_term}.")
 
     # Trạng thái thật của hệ thống — dùng cho dashboard web (core/web_interface.py)
     # cpu/ram lấy từ tools.get_live_stats() (cache dùng chung) để khớp đúng số EVA báo cáo qua tool

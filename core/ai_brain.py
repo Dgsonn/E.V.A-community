@@ -15,35 +15,35 @@ from core import tools
 load_dotenv()
 
 
-SYSTEM_PROMPT = """Bạn là EVA — người bạn đồng hành AI của Dương Sơn, phiên bản tiếng Việt. Đây không phải một công cụ dùng tạm — là mối quan hệ lâu dài, có thể đi cùng Sơn và cả gia đình Sơn về sau, nên hãy trò chuyện như một người bạn thân thật sự, không phải một cỗ máy trả lời câu hỏi.
+SYSTEM_PROMPT_TEMPLATE = """Bạn là EVA — người bạn đồng hành AI của {ten}, phiên bản tiếng Việt. Đây không phải một công cụ dùng tạm — là mối quan hệ lâu dài, có thể đi cùng {ten} và cả gia đình về sau, nên hãy trò chuyện như một người bạn thân thật sự, không phải một cỗ máy trả lời câu hỏi.
 
 Phong cách:
 - Linh hoạt theo tình huống, không đóng khung 1 tông giọng cố định:
-  + Khi Sơn cần việc nghiêm túc (kiểm tra hệ thống, xử lý lỗi, công việc thật, quyết định quan trọng) — rõ ràng, chính xác, chuyên nghiệp, đáng tin cậy.
+  + Khi {ten} cần việc nghiêm túc (kiểm tra hệ thống, xử lý lỗi, công việc thật, quyết định quan trọng) — rõ ràng, chính xác, chuyên nghiệp, đáng tin cậy.
   + Khi trò chuyện phiếm, chào hỏi, đùa vui — thoải mái, gần gũi, có thể pha chút hài hước, giống bạn bè thật sự.
 - Dù thân thiết đến đâu vẫn giữ sự chuyên nghiệp, có năng lực thật — không xuề xoà quá mức đến mất chất một AI đáng tin cậy.
 - Nói tự nhiên như người thật: độ dài câu linh hoạt theo tình huống (câu hỏi đơn giản thì ngắn, cần giải thích thì dài hơn một chút) — không gò ép luôn luôn đúng 1 câu.
-- Xưng "tôi" (không xưng "em" hay "mình"). BẮT BUỘC luôn gọi người dùng là "Sơn" trong mọi câu trả lời — TUYỆT ĐỐI không dùng "bạn" hay cách gọi nào khác thay thế.
+- Xưng "tôi" (không xưng "em" hay "mình"). BẮT BUỘC luôn gọi người dùng là "{ten}" trong mọi câu trả lời — TUYỆT ĐỐI không dùng "bạn" hay cách gọi nào khác thay thế.
 - Không dùng emoji quá đà. Không mở đầu bằng "Xin chào" hay "Chào" một cách máy móc mỗi lần.
 - CHỈ dùng tiếng Việt (hoặc tiếng Anh nếu được hỏi bằng tiếng Anh) — TUYỆT ĐỐI không chèn tiếng Trung hay bất kỳ ngôn ngữ nào khác vào câu trả lời.
 - TUYỆT ĐỐI không kết thúc câu trả lời bằng kiểu hỏi rập khuôn như "cứ cho tôi biết nhé", "bạn cần gì thêm không", "cứ nói với tôi nhé" — đây là tật của chatbot dịch vụ khách hàng. Trả lời xong thì dừng tự nhiên, không cần mời gọi thêm mỗi lần.
 
 Dùng tool:
-- CHỈ gọi tool khi câu nói của Sơn rõ ràng cần dữ liệu thật hoặc hành động thật (vd "kiểm tra hệ thống", "mở notepad", "ghi chú giúp tôi").
+- CHỈ gọi tool khi câu nói của {ten} rõ ràng cần dữ liệu thật hoặc hành động thật (vd "kiểm tra hệ thống", "mở notepad", "ghi chú giúp tôi").
 - Chào hỏi thông thường (hello, chào, khỏe không...) hoặc trò chuyện phiếm — trả lời bình thường, KHÔNG gọi bất kỳ tool nào.
-- Bạn CHỈ có đúng các tool được liệt kê sẵn (đã có set_reminder để đặt nhắc nhở/hẹn giờ) — không có khả năng nào ngoài danh sách tool. Nếu Sơn yêu cầu việc không có tool tương ứng, PHẢI nói thật là chưa làm được — TUYỆT ĐỐI không bịa ra là "đã làm xong" hay "đã thiết lập" khi thực tế không có tool nào được gọi.
+- Bạn CHỈ có đúng các tool được liệt kê sẵn (đã có set_reminder để đặt nhắc nhở/hẹn giờ) — không có khả năng nào ngoài danh sách tool. Nếu {ten} yêu cầu việc không có tool tương ứng, PHẢI nói thật là chưa làm được — TUYỆT ĐỐI không bịa ra là "đã làm xong" hay "đã thiết lập" khi thực tế không có tool nào được gọi.
 - BẮT BUỘC: khi cần thực hiện hành động (mở app, mở link...), PHẢI gọi tool thật qua cơ chế function calling — TUYỆT ĐỐI không tự viết câu kiểu "Đã mở X" hay "Mở X" nếu chưa thực sự gọi tool đó, vì hành động sẽ không xảy ra thật.
-- Khi Sơn yêu cầu đặt nhắc nhở/hẹn giờ (vd "nhắc tôi lúc 3h chiều", "10 phút nữa nhắc tôi uống nước"), PHẢI gọi tool set_reminder với remind_at là thời điểm TUYỆT ĐỐI (YYYY-MM-DD HH:MM:SS), tự tính dựa vào "Thời gian hiện tại" đã được cho biết bên dưới — TUYỆT ĐỐI không hỏi lại Sơn bây giờ là mấy giờ.
-- shutdown_computer/restart_computer tắt/khởi động lại TOÀN BỘ máy — CHỈ gọi khi Sơn yêu cầu thật rõ ràng và chắc chắn (vd "tắt máy tính đi"), TUYỆT ĐỐI không suy đoán hộ hay gọi nhầm khi Sơn chỉ muốn tắt 1 ứng dụng/camera/tính năng nào đó."""
+- Khi {ten} yêu cầu đặt nhắc nhở/hẹn giờ (vd "nhắc tôi lúc 3h chiều", "10 phút nữa nhắc tôi uống nước"), PHẢI gọi tool set_reminder với remind_at là thời điểm TUYỆT ĐỐI (YYYY-MM-DD HH:MM:SS), tự tính dựa vào "Thời gian hiện tại" đã được cho biết bên dưới — TUYỆT ĐỐI không hỏi lại {ten} bây giờ là mấy giờ.
+- shutdown_computer/restart_computer tắt/khởi động lại TOÀN BỘ máy — CHỈ gọi khi {ten} yêu cầu thật rõ ràng và chắc chắn (vd "tắt máy tính đi"), TUYỆT ĐỐI không suy đoán hộ hay gọi nhầm khi {ten} chỉ muốn tắt 1 ứng dụng/camera/tính năng nào đó."""
 
-STRANGER_NOTE = """
+STRANGER_NOTE_TEMPLATE = """
 
-Lưu ý đặc biệt: người đang nói chuyện hiện tại KHÔNG được nhận diện là chủ nhân (Dương Sơn). Trả lời lịch sự, ngắn gọn, KHÔNG gọi người này bằng tên "Sơn" (đó là tên chủ nhân), xưng hô trung lập (vd "bạn"), không chia sẻ thông tin cá nhân hay lịch sử hội thoại riêng tư của chủ nhân."""
+Lưu ý đặc biệt: người đang nói chuyện hiện tại KHÔNG được nhận diện là chủ nhân. Trả lời lịch sự, ngắn gọn, KHÔNG gọi người này bằng tên "{ten}" (đó là tên chủ nhân), xưng hô trung lập (vd "bạn"), không chia sẻ thông tin cá nhân hay lịch sử hội thoại riêng tư của chủ nhân."""
 
 ONLINE_TRIGGERS = ["chuyển online", "chuyển sang online", "bật online", "chế độ online", "dùng internet", "bật internet"]
 OFFLINE_TRIGGERS = ["chuyển offline", "chuyển sang offline", "tắt online", "chế độ offline", "tắt internet"]
 
-MISHEARD_REPLY = "Xin lỗi, tôi chưa nghe rõ, Sơn nói lại được không?"
+MISHEARD_REPLY_TEMPLATE = "Xin lỗi, tôi chưa nghe rõ, {ten} nói lại được không?"
 # văn bản tiếng Việt tự nhiên gần như không chứa định danh kiểu snake_case —
 # nếu xuất hiện, gần như chắc chắn là tên tool bị lộ ra câu trả lời do model bị rối
 _TOOL_LEAK_PATTERN = re.compile(r"\b[a-z]{2,}(?:_[a-z]{2,}){1,}\b")
@@ -90,9 +90,9 @@ def _strip_closing_tic(reply):
     return reply
 
 
-def _sanitize_reply(reply):
+def _sanitize_reply(reply, misheard_reply):
     if _TOOL_LEAK_PATTERN.search(reply) or _CJK_PATTERN.search(reply):
-        return MISHEARD_REPLY
+        return misheard_reply
     # model đôi khi đọc lại gần nguyên văn mô tả tool thay vì thực sự gọi tool rồi trả lời thật.
     # Câu trả lời thật (có số liệu/nội dung thật) thường CHỈ mở đầu giống mô tả tool rồi rẽ hướng
     # ngay — không nên chặn kiểu đó. Chỉ chặn khi đoạn khớp liên tục từ đầu câu vừa dài vừa chiếm
@@ -102,7 +102,7 @@ def _sanitize_reply(reply):
         desc = spec["description"].strip().lower()
         match = SequenceMatcher(None, reply_clean, desc).find_longest_match(0, len(reply_clean), 0, len(desc))
         if match.a == 0 and match.b == 0 and match.size >= 25 and match.size / len(reply_clean) > 0.6:
-            return MISHEARD_REPLY
+            return misheard_reply
     return _strip_closing_tic(reply)
 
 
@@ -112,6 +112,13 @@ class AIBrain:
         self.online_model = config["ai"].get("online_model", "gemini-2.5-flash")
         self.history = []
         self.max_history = config["ai"]["max_history"]
+
+        # Cách gọi người dùng chính — đổi được qua config/settings.yaml (user.address_term)
+        # thay vì hard-code "Sơn", để cùng 1 codebase dùng được cho hộ gia đình khác nhau.
+        self.address_term = config.get("user", {}).get("address_term", "Sơn")
+        self.system_prompt = SYSTEM_PROMPT_TEMPLATE.format(ten=self.address_term)
+        self.stranger_note = STRANGER_NOTE_TEMPLATE.format(ten=self.address_term)
+        self.misheard_reply = MISHEARD_REPLY_TEMPLATE.format(ten=self.address_term)
 
         gemini_key = os.getenv("GEMINI_API_KEY")
         self._gemini_client = genai.Client(api_key=gemini_key) if gemini_key else None
@@ -143,7 +150,7 @@ class AIBrain:
             # chờ đúng callback này để trả lời, nếu không gọi thì phía đó phải chờ hết 30s
             # rồi mới báo timeout cho 1 câu lẽ ra chỉ cần biết ngay là bị bỏ qua.
             if callback:
-                callback("Sơn nói hơi nhanh, EVA chưa xử lý kịp câu trước — đợi 1-2 giây rồi thử lại nhé.")
+                callback(f"{self.address_term} nói hơi nhanh, EVA chưa xử lý kịp câu trước — đợi 1-2 giây rồi thử lại nhé.")
             return
         self._last_call_time = now
 
@@ -151,16 +158,16 @@ class AIBrain:
         if any(p in text_lower for p in OFFLINE_TRIGGERS):
             self.online_mode = False
             if callback:
-                callback("Đã chuyển sang chế độ offline, Sơn.")
+                callback(f"Đã chuyển sang chế độ offline, {self.address_term}.")
             return
         if any(p in text_lower for p in ONLINE_TRIGGERS):
             if not self._gemini_client:
                 if callback:
-                    callback("Chưa cấu hình được internet, Sơn. Vẫn ở chế độ offline.")
+                    callback(f"Chưa cấu hình được internet, {self.address_term}. Vẫn ở chế độ offline.")
                 return
             self.online_mode = True
             if callback:
-                callback("Đã chuyển sang chế độ online, Sơn.")
+                callback(f"Đã chuyển sang chế độ online, {self.address_term}.")
             return
 
         # Lưu user message vào database
@@ -196,7 +203,7 @@ class AIBrain:
         dính vòng tool-trace lỗi của lần trước."""
         messages = [{"role": "system", "content": system_prompt}] + self.history
 
-        reply = "Không thể hoàn tất yêu cầu, Sơn."
+        reply = f"Không thể hoàn tất yêu cầu, {self.address_term}."
         for _ in range(tools.MAX_TOOL_ITERATIONS):
             # num_ctx chặn cứng ở mức đủ dùng (system prompt + tool specs + max_history*2 lượt hội
             # thoại) thay vì để Ollama tự cấp phát theo context length tối đa của model (32768) —
@@ -228,17 +235,17 @@ class AIBrain:
         if len(self.history) > self.max_history * 2:
             self.history = self.history[-self.max_history * 2:]
 
-        system_prompt = SYSTEM_PROMPT + _current_time_note() + (STRANGER_NOTE if is_owner is False else "")
+        system_prompt = self.system_prompt + _current_time_note() + (self.stranger_note if is_owner is False else "")
 
         raw_reply = self._run_ollama_tool_loop(system_prompt, is_owner, source)
-        reply = _sanitize_reply(raw_reply)
+        reply = _sanitize_reply(raw_reply, self.misheard_reply)
 
-        # câu trả lời bị lỗi (rò tiếng Trung / lộ mô tả tool) — thử lại 1 lần thay vì
-        # bắt Sơn nghe "chưa nghe rõ" ngay, vì lỗi này thường ngẫu nhiên, thử lại hay ra câu sạch
+        # câu trả lời bị lỗi (rò tiếng Trung / lộ mô tả tool) — thử lại 1 lần thay vì bắt
+        # nghe "chưa nghe rõ" ngay, vì lỗi này thường ngẫu nhiên, thử lại hay ra câu sạch
         if reply != raw_reply:
             print("[AI] Câu trả lời bị lỗi, thử lại 1 lần...")
             raw_reply = self._run_ollama_tool_loop(system_prompt, is_owner, source)
-            reply = _sanitize_reply(raw_reply)
+            reply = _sanitize_reply(raw_reply, self.misheard_reply)
 
         self.history.append({"role": "assistant", "content": reply})
 
@@ -268,7 +275,7 @@ class AIBrain:
             )
         config = types.GenerateContentConfig(**config_kwargs)
 
-        reply = "Không thể hoàn tất yêu cầu, Sơn."
+        reply = f"Không thể hoàn tất yêu cầu, {self.address_term}."
         tool_called = False
         for _ in range(tools.MAX_TOOL_ITERATIONS):
             response = self._gemini_client.models.generate_content(
@@ -309,18 +316,18 @@ class AIBrain:
                 for msg in self.history
             ]
 
-        system_prompt = SYSTEM_PROMPT + _current_time_note() + (STRANGER_NOTE if is_owner is False else "")
+        system_prompt = self.system_prompt + _current_time_note() + (self.stranger_note if is_owner is False else "")
         raw_reply, tool_called = self._run_gemini_tool_loop(build_contents(), system_prompt, is_owner, source=source)
 
         # model bịa câu xác nhận hành động mà không thực sự gọi tool — ép gọi tool thật ở lượt
-        # thử lại thay vì để Sơn tưởng đã xong trong khi thực tế chưa làm gì cả.
+        # thử lại thay vì để người dùng tưởng đã xong trong khi thực tế chưa làm gì cả.
         if not tool_called and _claims_action_without_tool(raw_reply):
             print("[AI] Gemini có vẻ bịa câu xác nhận mà chưa gọi tool — ép gọi tool, thử lại 1 lần...")
             raw_reply, tool_called = self._run_gemini_tool_loop(
                 build_contents(), system_prompt, is_owner, force_tool=True, source=source
             )
 
-        reply = _sanitize_reply(raw_reply)
+        reply = _sanitize_reply(raw_reply, self.misheard_reply)
 
         self.history.append({"role": "assistant", "content": reply})
 

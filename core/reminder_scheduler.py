@@ -13,10 +13,11 @@ class ReminderScheduler:
     ĐÚNG 1 LẦN vào thời điểm đã hẹn rồi thôi. Lưu trong bảng reminders (core/schema.sql) nên
     vẫn còn nếu EVA khởi động lại trước khi tới giờ hẹn."""
 
-    def __init__(self, db, speak_callback, check_interval_secs=CHECK_INTERVAL_SECS):
+    def __init__(self, db, speak_callback, check_interval_secs=CHECK_INTERVAL_SECS, address_term="Sơn"):
         self.db = db
         self.speak = speak_callback
         self.check_interval = check_interval_secs
+        self.address_term = address_term
 
     def start(self):
         threading.Thread(target=self._loop, daemon=True).start()
@@ -38,4 +39,4 @@ class ReminderScheduler:
                 self.db.mark_reminder_fired(reminder_id)
                 print(f"[Reminder] Đã tới giờ nhắc: {message}")
                 if self.speak:
-                    self.speak(f"Sơn ơi, tới giờ {message} rồi.")
+                    self.speak(f"{self.address_term} ơi, tới giờ {message} rồi.")

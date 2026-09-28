@@ -57,10 +57,11 @@ class ActivityMonitor:
     gộp cả 2 nguồn (lấy giá trị nhỏ hơn = có hoạt động ở bất kỳ đâu đều tính) — nếu chưa có
     báo cáo nào (agent chưa chạy/mất mạng) thì tự rơi về đúng hành vi cũ (chỉ tính server)."""
 
-    def __init__(self, poll_interval_secs=POLL_INTERVAL_SECS, speak_callback=None):
+    def __init__(self, poll_interval_secs=POLL_INTERVAL_SECS, speak_callback=None, address_term="Sơn"):
         self.poll_interval = poll_interval_secs
         self.db = get_db()
         self.speak = speak_callback
+        self.address_term = address_term
         self._last_idle_seconds = 0.0
         self._last_check_time = time.time()
         self._active_since = time.time()  # mốc bắt đầu chuỗi hoạt động liên tục hiện tại (chưa nghỉ)
@@ -151,13 +152,13 @@ class ActivityMonitor:
                 "giấc ngủ", f"0 tiếng - thức trắng đêm (phát hiện hoạt động liên tục {active_hours:.0f} tiếng)"
             )
             message = (
-                f"Sơn ơi, tôi thấy Sơn dùng máy liên tục khoảng {active_hours:.0f} tiếng không nghỉ, "
+                f"{self.address_term} ơi, tôi thấy {self.address_term} dùng máy liên tục khoảng {active_hours:.0f} tiếng không nghỉ, "
                 "có vẻ thức trắng đêm rồi — nên tranh thủ chợp mắt một chút nhé."
             )
         else:
             # Ban ngày -> chỉ nhắc nghỉ, không ghi nhầm vào dữ liệu giấc ngủ
             message = (
-                f"Sơn ơi, Sơn đã làm việc liên tục khoảng {active_hours:.0f} tiếng không nghỉ rồi — "
+                f"{self.address_term} ơi, {self.address_term} đã làm việc liên tục khoảng {active_hours:.0f} tiếng không nghỉ rồi — "
                 "đứng dậy đi lại, uống nước hoặc nghỉ mắt một chút nhé."
             )
 

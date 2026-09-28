@@ -803,7 +803,7 @@ def _get_weather(city):
         return "Lỗi: thiếu tên thành phố cần xem thời tiết."
     api_key = os.getenv("OPENWEATHER_API_KEY")
     if not api_key:
-        return "Lỗi: chưa cấu hình OPENWEATHER_API_KEY trong .env — Sơn cần đăng ký key miễn phí tại openweathermap.org rồi thêm vào .env."
+        return "Lỗi: chưa cấu hình OPENWEATHER_API_KEY trong .env — cần đăng ký key miễn phí tại openweathermap.org rồi thêm vào .env."
 
     import json
     import urllib.request

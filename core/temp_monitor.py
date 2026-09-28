@@ -10,11 +10,12 @@ class TempMonitor:
     cứng. Cùng kiểu thiết kế với DailyReminder (vòng lặp riêng, gọi speak_callback khi tới điều
     kiện), khác ở chỗ có thể báo lặp lại nhiều lần trong ngày nếu vẫn còn nóng."""
 
-    def __init__(self, warning_c, speak_callback, check_interval_secs=120, recheck_interval_secs=600):
+    def __init__(self, warning_c, speak_callback, check_interval_secs=120, recheck_interval_secs=600, address_term="Sơn"):
         self.warning_c = warning_c
         self.speak = speak_callback
         self.check_interval = check_interval_secs
         self.recheck_interval = recheck_interval_secs
+        self.address_term = address_term
         self._last_alert_time = 0
         self._is_hot = False
 
@@ -42,7 +43,7 @@ class TempMonitor:
             if not self._is_hot or (now - self._last_alert_time) >= self.recheck_interval:
                 self._is_hot = True
                 self._last_alert_time = now
-                message = f"Sơn ơi, GPU đang nóng {temp} độ C, vượt ngưỡng cảnh báo {self.warning_c} độ — nên tắt máy cho nguội bớt."
+                message = f"{self.address_term} ơi, GPU đang nóng {temp} độ C, vượt ngưỡng cảnh báo {self.warning_c} độ — nên tắt máy cho nguội bớt."
                 print(f"[Temp] Cảnh báo: {message}")
                 if self.speak:
                     self.speak(message)

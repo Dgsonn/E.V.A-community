@@ -8,18 +8,6 @@ import edge_tts
 VOICE = "vi-VN-HoaiMyNeural"  # đổi sang "vi-VN-NamMinhNeural" nếu muốn giọng nam
 CACHE_DIR = "assets/tts_cache"
 
-PHRASES = {
-    "Hệ thống đã online. Tôi đã sẵn sàng phục vụ, Sơn.",
-    "Đã chuyển sang chế độ offline, Sơn.",
-    "Đã chuyển sang chế độ online, Sơn.",
-    "Chưa cấu hình được internet, Sơn. Vẫn ở chế độ offline.",
-    "Đã bật camera, Sơn.",
-    "Đã tắt camera, Sơn.",
-    "Xin lỗi, tôi chưa nghe rõ, Sơn nói lại được không?",
-    "Không thể hoàn tất yêu cầu, Sơn.",
-    "Có lỗi, thử lại sau.",
-}
-
 
 def _cache_path(text):
     h = hashlib.md5((VOICE + text).encode("utf-8")).hexdigest()[:12]
@@ -27,7 +15,7 @@ def _cache_path(text):
 
 
 class TTSEngine:
-    def __init__(self):
+    def __init__(self, config=None):
         pygame.mixer.init()
         os.makedirs(CACHE_DIR, exist_ok=True)
         self._loop = asyncio.new_event_loop()
@@ -37,14 +25,31 @@ class TTSEngine:
         self._on_start_callbacks = []
         self._on_end_callbacks = []
 
+        # user.address_term/speech_rate (config/settings.yaml) — cùng nguồn cấu hình với
+        # core/ai_brain.py, để câu preload cache đúng với câu EVA thực sự sẽ nói.
+        user_cfg = (config or {}).get("user", {})
+        self.address_term = user_cfg.get("address_term", "Sơn")
+        self.rate = user_cfg.get("speech_rate", "+0%")
+        self._phrases = {
+            f"Hệ thống đã online. Tôi đã sẵn sàng phục vụ, {self.address_term}.",
+            f"Đã chuyển sang chế độ offline, {self.address_term}.",
+            f"Đã chuyển sang chế độ online, {self.address_term}.",
+            f"Chưa cấu hình được internet, {self.address_term}. Vẫn ở chế độ offline.",
+            f"Đã bật camera, {self.address_term}.",
+            f"Đã tắt camera, {self.address_term}.",
+            f"Xin lỗi, tôi chưa nghe rõ, {self.address_term} nói lại được không?",
+            f"Không thể hoàn tất yêu cầu, {self.address_term}.",
+            "Có lỗi, thử lại sau.",
+        }
+
         # Edge-TTS gọi qua mạng, không cần nạp model nặng — sẵn sàng ngay
         self._ready = threading.Event()
         self._ready.set()
-        print(f"[TTS] Edge-TTS sẵn sàng (giọng: {VOICE}, cần internet để tạo câu mới)")
+        print(f"[TTS] Edge-TTS sẵn sàng (giọng: {VOICE}, tốc độ: {self.rate}, cần internet để tạo câu mới)")
         asyncio.run_coroutine_threadsafe(self._preload(), self._loop)
 
     async def _preload(self):
-        for text in PHRASES:
+        for text in self._phrases:
             path = _cache_path(text)
             if not os.path.exists(path):
                 try:
@@ -56,7 +61,7 @@ class TTSEngine:
     async def _synthesize(self, text, path):
         # tự đọc stream() thay vì dùng communicate.save() — save() chậm hơn hẳn (~3s so
         # với ~0.7s) trong thực tế đo được, có lẽ do xử lý thêm word-boundary bên trong.
-        communicate = edge_tts.Communicate(text, VOICE)
+        communicate = edge_tts.Communicate(text, VOICE, rate=self.rate)
         with open(path, "wb") as f:
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
@@ -65,7 +70,7 @@ class TTSEngine:
     def get_audio_path(self, text):
         """Đảm bảo mp3 cho text đã tồn tại trong cache rồi trả về đường dẫn — KHÔNG phát qua
         pygame (khác speak()). Dùng cho phản hồi giọng nói qua trình duyệt (source="web_voice"),
-        nơi Sơn cần nghe qua chính trình duyệt chứ không phải loa server."""
+        nơi người dùng cần nghe qua chính trình duyệt chứ không phải loa server."""
         path = _cache_path(text)
         if not os.path.exists(path):
             asyncio.run_coroutine_threadsafe(self._synthesize(text, path), self._loop).result()

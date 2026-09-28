@@ -10,17 +10,18 @@ ALERT_COOLDOWN = timedelta(hours=12)  # tránh lặp lại cùng 1 cảnh báo n
 
 class HealthMonitor:
     """Định kỳ soi health_logs, tự lên tiếng (qua speak_callback) nếu phát hiện bất thường —
-    khác với chỉ ghi log thụ động (Sơn phải hỏi mới biết), đây là phần khiến log thực sự có
+    khác với chỉ ghi log thụ động (người dùng phải hỏi mới biết), đây là phần khiến log thực sự có
     tác dụng: EVA chủ động cảnh báo mà không cần được hỏi trước.
 
     Category lọc theo SUBSTRING (không đòi khớp tuyệt đối) vì category do AI tự đặt tên mỗi
     lần ghi log (xem core/tools.py log_health), không phải danh sách cố định — "giấc ngủ" và
     "ngủ" đều phải bắt được."""
 
-    def __init__(self, db, speak_callback, check_interval_secs=CHECK_INTERVAL_SECS):
+    def __init__(self, db, speak_callback, check_interval_secs=CHECK_INTERVAL_SECS, address_term="Sơn"):
         self.db = db
         self.speak = speak_callback
         self.check_interval = check_interval_secs
+        self.address_term = address_term
         self._last_alert = {}  # rule_name -> datetime lần cảnh báo gần nhất
 
     def start(self):
@@ -70,7 +71,7 @@ class HealthMonitor:
         if len(low_nights) >= 2:
             self._fire(
                 "sleep_low",
-                "Sơn ơi, mấy đêm gần đây tôi thấy Sơn ngủ dưới 6 tiếng liên tục — cố gắng đi ngủ sớm hơn nhé.",
+                f"{self.address_term} ơi, mấy đêm gần đây tôi thấy {self.address_term} ngủ dưới 6 tiếng liên tục — cố gắng đi ngủ sớm hơn nhé.",
             )
 
     def _check_symptom_repeat(self):
@@ -79,6 +80,6 @@ class HealthMonitor:
         if len(matched) >= 2:
             self._fire(
                 "symptom_repeat",
-                "Sơn ơi, tôi thấy Sơn báo triệu chứng khó chịu vài lần trong hôm nay rồi — "
-                "nếu không đỡ thì Sơn nên nghỉ ngơi hoặc đi khám nhé.",
+                f"{self.address_term} ơi, tôi thấy {self.address_term} báo triệu chứng khó chịu vài lần trong hôm nay rồi — "
+                f"nếu không đỡ thì {self.address_term} nên nghỉ ngơi hoặc đi khám nhé.",
             )

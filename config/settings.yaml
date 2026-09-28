@@ -1,3 +1,7 @@
+user:
+  address_term: "Sơn"    # cách EVA gọi người dùng chính trong mọi câu trả lời — đổi theo hộ gia đình, vd "Bác", "Ông Ba", "Bà Tư"
+  speech_rate: "+0%"     # tốc độ nói edge-tts — số âm để nói chậm hơn (vd "-15%"), phù hợp người nghe chậm
+
 eva:
   name: EVA
   wake_word: "dậy đi"          # đánh thức từ chế độ chờ — dùng từ tiếng Việt thật để Whisper nhận ổn định
@@ -37,7 +41,7 @@ health:
   # Nhắc cố định hàng ngày theo lời bác sĩ dặn (dậy ăn sáng + uống thuốc) — khác HealthMonitor/
   # ActivityMonitor (dựa trên dữ liệu/hành vi), đây chỉ đơn giản báo đúng giờ mỗi ngày.
   daily_reminder_time: "07:00"
-  daily_reminder_message: "Sơn ơi, đã đến giờ dậy ăn sáng và uống thuốc theo đúng lời bác sĩ dặn rồi đó — đừng bỏ qua nhé."
+  daily_reminder_message: "{ten} ơi, đã đến giờ dậy ăn sáng và uống thuốc theo đúng lời bác sĩ dặn rồi đó — đừng bỏ qua nhé."  # {ten} được thay bằng user.address_term lúc chạy
 
 system:
   # Máy chạy 24/7 làm server (xem core/temp_monitor.py) — cảnh báo chủ động nếu GPU vượt ngưỡng
