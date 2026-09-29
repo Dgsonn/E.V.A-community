@@ -22,6 +22,7 @@ class TTSEngine:
         self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._thread.start()
         self._speaking = False
+        self._play_lock = asyncio.Lock()  # mỗi lúc chỉ phát 1 câu — câu wait_turn chờ ở đây
         self._on_start_callbacks = []
         self._on_end_callbacks = []
 
@@ -48,8 +49,15 @@ class TTSEngine:
         print(f"[TTS] Edge-TTS sẵn sàng (giọng: {VOICE}, tốc độ: {self.rate}, cần internet để tạo câu mới)")
         asyncio.run_coroutine_threadsafe(self._preload(), self._loop)
 
+    def preload(self, texts):
+        """Tạo sẵn file giọng đọc cho các câu cố định (nhắc thuốc, hỏi han, SOS...) lúc còn mạng
+        — Edge-TTS cần internet để tạo câu MỚI, nên nếu không tạo trước thì lúc mất mạng những
+        câu an toàn này sẽ không phát ra được. Câu đã có trong cache thì bỏ qua."""
+        self._phrases.update(texts)
+        asyncio.run_coroutine_threadsafe(self._preload(), self._loop)
+
     async def _preload(self):
-        for text in self._phrases:
+        for text in list(self._phrases):
             path = _cache_path(text)
             if not os.path.exists(path):
                 try:
@@ -67,21 +75,19 @@ class TTSEngine:
                 if chunk["type"] == "audio":
                     f.write(chunk["data"])
 
-    def get_audio_path(self, text):
-        """Đảm bảo mp3 cho text đã tồn tại trong cache rồi trả về đường dẫn — KHÔNG phát qua
-        pygame (khác speak()). Dùng cho phản hồi giọng nói qua trình duyệt (source="web_voice"),
-        nơi người dùng cần nghe qua chính trình duyệt chứ không phải loa server."""
-        path = _cache_path(text)
-        if not os.path.exists(path):
-            asyncio.run_coroutine_threadsafe(self._synthesize(text, path), self._loop).result()
-        return path
-
-    def speak(self, text):
-        if self._speaking:
+    def speak(self, text, wait_turn=False):
+        """wait_turn=False: đang nói thì bỏ qua câu mới (hành vi cũ cho câu trả lời thường).
+        wait_turn=True: xếp hàng chờ nói xong rồi phát — dùng cho nhắc thuốc/cảnh báo/SOS,
+        những câu KHÔNG được phép mất chỉ vì EVA đang nói dở câu khác."""
+        if self._speaking and not wait_turn:
             return
         asyncio.run_coroutine_threadsafe(self._play(text), self._loop)
 
     async def _play(self, text):
+        async with self._play_lock:
+            await self._play_locked(text)
+
+    async def _play_locked(self, text):
         self._speaking = True
         for cb in self._on_start_callbacks:
             try:

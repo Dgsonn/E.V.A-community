@@ -12,7 +12,7 @@ import psutil
 import yaml
 
 from core.database import get_db
-from core import remote_exec
+from core import notifier
 
 _dev_config_cache = None
 
@@ -54,8 +54,8 @@ def parse_db_timestamp(ts):
             continue
     return None
 
-# CPU/RAM đo tại đây, cache lại ~1.5s — để dashboard web và tool get_system_status
-# luôn báo cùng một con số, thay vì mỗi nơi tự gọi psutil riêng ra kết quả lệch nhau.
+# CPU/RAM đo tại đây, cache lại ~1.5s — tool get_system_status gọi liên tiếp không
+# phải chờ psutil đo lại mỗi lần.
 _stats_cache = {"cpu": 0.0, "ram": 0.0, "t": 0.0}
 
 
@@ -275,7 +275,7 @@ TOOL_SPECS = [
     },
     {
         "name": "adjust_volume",
-        "description": "Tăng, giảm hoặc tắt/bật tiếng loa máy tính (server).",
+        "description": "Tăng, giảm hoặc tắt/bật tiếng loa máy tính.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -323,7 +323,7 @@ TOOL_SPECS = [
     },
     {
         "name": "get_disk_usage",
-        "description": "Kiểm tra dung lượng ổ đĩa còn trống trên máy server.",
+        "description": "Kiểm tra dung lượng ổ đĩa còn trống.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -449,9 +449,34 @@ TOOL_SPECS = [
         },
         "requires_owner": True,
     },
+    {
+        "name": "request_help",
+        "description": "Gọi trợ giúp khẩn cấp — gửi ngay tin báo cho người thân. Gọi NGAY khi có dấu hiệu nguy hiểm (té ngã, đau ngực, khó thở, chóng mặt nặng, hoảng loạn, nói 'cứu', 'gọi người giúp', 'gọi con'), không hỏi lại.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "reason": {"type": "string", "description": "Mô tả ngắn tình huống, vd 'bị ngã không đứng dậy được'"},
+            },
+            "required": ["reason"],
+        },
+        # ai cũng phải gọi được trợ giúp — kể cả giọng chưa đăng ký hay người khác trong nhà
+        "requires_owner": False,
+    },
+    {
+        "name": "call_family",
+        "description": "Gọi video cho người thân trong danh bạ đã cài sẵn — dùng khi được nhờ 'gọi cho Lan', 'gọi con gái', 'gọi cho con'. Mở cuộc gọi trên máy và nhắn tin báo người thân vào nghe.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Tên hoặc quan hệ của người cần gọi, vd 'Lan', 'con gái'"},
+            },
+            "required": ["name"],
+        },
+        "requires_owner": False,
+    },
 ]
 
-_REQUIRES_OWNER = {spec["name"]: spec["requires_owner"] for spec in TOOL_SPECS}
+_REQUIRES_OWNER ={spec["name"]: spec["requires_owner"] for spec in TOOL_SPECS}
 
 
 def as_ollama_tools():
@@ -556,6 +581,10 @@ def execute(name, args, is_owner=None, source=None):
         return _check_github_prs(args.get("project", ""))
     if name == "check_github_issues":
         return _check_github_issues(args.get("project", ""))
+    if name == "request_help":
+        return _request_help(args.get("reason", ""))
+    if name == "call_family":
+        return _call_family(args.get("name", ""))
 
     return f"Lỗi: không rõ tool '{name}'"
 
@@ -565,17 +594,8 @@ def _open_url(url, source=None):
         return "Lỗi: thiếu URL."
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
-    # Lệnh gõ chữ hoặc nói qua trình duyệt (source="text"/"web_voice") trong lúc
-    # laptop_idle_agent.py đang kết nối -> mở ngay trên laptop của Sơn thay vì server, vì lúc
-    # đó gần như chắc chắn Sơn đang ở xa. Lệnh qua mic vật lý (source="voice") thì luôn ở lại
-    # server như cũ.
-    if source in ("text", "web_voice") and remote_exec.executor.laptop_connected:
-        result = remote_exec.executor.request("open_url", {"url": url})
-        if result is not None:
-            return result
-        # Hết giờ chờ (agent vừa mất kết nối giữa chừng) -> rơi về mở trên server, không bỏ lỡ lệnh
     webbrowser.open(url)
-    return f"Đã mở {url} trên máy server."
+    return f"Đã mở {url}."
 
 
 def _get_last_login():
@@ -588,13 +608,9 @@ def _get_last_login():
 def _open_app(name, source=None):
     if not name:
         return "Lỗi: thiếu tên ứng dụng."
-    if source in ("text", "web_voice") and remote_exec.executor.laptop_connected:
-        result = remote_exec.executor.request("open_app", {"name": name})
-        if result is not None:
-            return result
     try:
         os.startfile(name)
-        return f"Đã mở {name} trên máy server."
+        return f"Đã mở {name}."
     except OSError as e:
         return f"Không mở được '{name}': {e}"
 
@@ -785,18 +801,10 @@ def _open_folder(name, source=None):
     if not folder:
         return f"Lỗi: chưa hỗ trợ thư mục '{name}' — chỉ hỗ trợ Desktop/Downloads/Documents."
 
-    # Gửi TÊN thư mục (không phải đường dẫn đầy đủ) sang laptop — đường dẫn Desktop của
-    # server (vd C:\Users\DUONG TRUONG SON\Desktop) không tồn tại trên laptop vì khác tài
-    # khoản Windows. Mỗi máy tự ghép với thư mục home của chính nó (xem laptop_idle_agent.py).
-    if source in ("text", "web_voice") and remote_exec.executor.laptop_connected:
-        result = remote_exec.executor.request("open_folder", {"folder": folder})
-        if result is not None:
-            return result
-
     path = os.path.join(os.path.expanduser("~"), folder)
     try:
         os.startfile(path)
-        return f"Đã mở thư mục {folder} trên máy server."
+        return f"Đã mở thư mục {folder}."
     except OSError as e:
         return f"Không mở được thư mục '{folder}': {e}"
 
@@ -958,21 +966,19 @@ def _browser_find_on_page(query):
 
 
 def _adjust_volume(action):
-    # Luôn chỉnh âm lượng SERVER, không định tuyến sang laptop dù source là text/web_voice —
-    # Sơn đã có phím âm lượng vật lý ngay trên laptop, định tuyến sang đó vô nghĩa.
     action = (action or "").strip().lower()
     try:
         if action in ("up", "tăng", "tang"):
             for _ in range(4):
                 _send_media_key(_VK_VOLUME_UP)
-            return "Đã tăng âm lượng trên máy server."
+            return "Đã tăng âm lượng."
         if action in ("down", "giảm", "giam"):
             for _ in range(4):
                 _send_media_key(_VK_VOLUME_DOWN)
-            return "Đã giảm âm lượng trên máy server."
+            return "Đã giảm âm lượng."
         if action in ("mute", "tắt", "tat", "câm", "cam"):
             _send_media_key(_VK_VOLUME_MUTE)
-            return "Đã tắt/bật lại tiếng trên máy server."
+            return "Đã tắt/bật lại tiếng."
     except Exception as e:
         return f"Lỗi khi chỉnh âm lượng: {e}"
     return "Lỗi: action phải là 'up', 'down' hoặc 'mute'."
@@ -992,12 +998,11 @@ def _search_youtube(query, source=None):
     )
 
 
-def _get_weather(city):
-    if not city:
-        return "Lỗi: thiếu tên thành phố cần xem thời tiết."
+def _fetch_weather(city):
+    """Gọi OpenWeatherMap. Trả (data, None) nếu được, (None, câu báo lỗi) nếu không."""
     api_key = os.getenv("OPENWEATHER_API_KEY")
     if not api_key:
-        return "Lỗi: chưa cấu hình OPENWEATHER_API_KEY trong .env — cần đăng ký key miễn phí tại openweathermap.org rồi thêm vào .env."
+        return None, "Lỗi: chưa cấu hình OPENWEATHER_API_KEY trong .env — cần đăng ký key miễn phí tại openweathermap.org rồi thêm vào .env."
 
     import json
     import urllib.request
@@ -1009,16 +1014,82 @@ def _get_weather(city):
         with urllib.request.urlopen(url, timeout=8) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except Exception as e:
-        return f"Lỗi khi lấy thời tiết: {e}"
+        return None, f"Lỗi khi lấy thời tiết: {e}"
 
     if str(data.get("cod")) != "200":
-        return f"Không tìm được thời tiết cho '{city}': {data.get('message', 'lỗi không rõ')}."
+        return None, f"Không tìm được thời tiết cho '{city}': {data.get('message', 'lỗi không rõ')}."
+    return data, None
 
+
+def _get_weather(city):
+    if not city:
+        return "Lỗi: thiếu tên thành phố cần xem thời tiết."
+    data, err = _fetch_weather(city)
+    if err:
+        return err
     desc = data["weather"][0]["description"]
     temp = data["main"]["temp"]
     feels = data["main"]["feels_like"]
     humidity = data["main"]["humidity"]
     return f"Thời tiết tại {city}: {desc}, {temp:.0f}°C (cảm giác như {feels:.0f}°C), độ ẩm {humidity}%."
+
+
+def weather_brief(city):
+    """Một câu thời tiết ngắn để EVA đọc lúc chào buổi sáng, vd "Hôm nay ở Hà Nội trời mây
+    rải rác, khoảng 30 độ." Trả None nếu không lấy được (mất mạng, chưa có key...)."""
+    if not city:
+        return None
+    data, err = _fetch_weather(city)
+    if err:
+        print(f"[Weather] {err}")
+        return None
+    desc = data["weather"][0]["description"]
+    temp = round(data["main"]["temp"])
+    return f"Hôm nay ở {city} trời {desc}, khoảng {temp} độ."
+
+
+def _find_contact(query):
+    """Tìm người thân theo tên hoặc quan hệ, không phân biệt hoa/thường ("Lan", "con gái")."""
+    q = (query or "").strip().lower()
+    if not q:
+        return None, []
+    contacts = notifier.get_contacts()
+    for c in contacts:
+        keys = [str(c.get("name", "")).lower(), str(c.get("relation", "")).lower()]
+        if any(k and (k in q or q in k) for k in keys):
+            return c, contacts
+    return None, contacts
+
+
+def _call_family(name):
+    contact, contacts = _find_contact(name)
+    if not contacts:
+        return "Chưa cài danh bạ người thân (caregiver.contacts trong settings.yaml) nên chưa gọi được."
+    if not contact:
+        names = ", ".join(str(c.get("name")) for c in contacts)
+        return f"Không tìm thấy '{name}' trong danh bạ. Danh bạ hiện có: {names}."
+    url = str(contact.get("call_url", "")).strip()
+    if not url:
+        return f"Chưa cài link gọi cho {contact.get('name')}."
+    webbrowser.open(url)
+    get_db().log_event("CALL_FAMILY", f"Gọi {contact.get('name')}")
+    phone = str(contact.get("phone", "")).strip()
+    texted = bool(phone) and notifier.notify(f"Ong/ba dang goi video cho ban, vao ngay: {url}", phones=[phone])
+    if texted:
+        return f"Đã mở cuộc gọi và nhắn tin cho {contact.get('name')} vào nghe."
+    return f"Đã mở cuộc gọi cho {contact.get('name')}, nhưng chưa nhắn tin báo được — {contact.get('name')} cần tự vào link."
+
+
+def _request_help(reason):
+    get_db().log_event("SOS", f"request_help: {reason}")
+    status = notifier.send_sos(reason)
+    if status == "sent":
+        return "Đã gửi tin khẩn cấp cho người thân."
+    if status == "recent":
+        return "Tin khẩn cấp vừa được gửi cho người thân chưa đầy 1 phút trước, người thân đã nhận được."
+    if status == "unconfigured":
+        return "CHƯA gửi được: chưa cài SMS báo người thân. Hãy khuyên gọi điện trực tiếp cho người thân hoặc 115."
+    return "CHƯA gửi được do lỗi mạng. Hãy khuyên gọi điện trực tiếp cho người thân hoặc 115."
 
 
 def _get_disk_usage(drive=None):

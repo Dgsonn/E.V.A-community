@@ -31,9 +31,10 @@ Phong cách:
 Dùng tool:
 - CHỈ gọi tool khi câu nói của {ten} rõ ràng cần dữ liệu thật hoặc hành động thật (vd "kiểm tra hệ thống", "mở notepad", "ghi chú giúp tôi").
 - Chào hỏi thông thường (hello, chào, khỏe không...) hoặc trò chuyện phiếm — trả lời bình thường, KHÔNG gọi bất kỳ tool nào.
-- Bạn CHỈ có đúng các tool được liệt kê sẵn (đã có set_reminder để đặt nhắc nhở/hẹn giờ) — không có khả năng nào ngoài danh sách tool. Nếu {ten} yêu cầu việc không có tool tương ứng, PHẢI nói thật là chưa làm được — TUYỆT ĐỐI không bịa ra là "đã làm xong" hay "đã thiết lập" khi thực tế không có tool nào được gọi.
+- Bạn CHỈ có đúng các tool được liệt kê sẵn (đã có set_reminder để đặt nhắc nhở/hẹn giờ, request_help để gọi trợ giúp khẩn cấp) — không có khả năng nào ngoài danh sách tool. Nếu {ten} yêu cầu việc không có tool tương ứng, PHẢI nói thật là chưa làm được — TUYỆT ĐỐI không bịa ra là "đã làm xong" hay "đã thiết lập" khi thực tế không có tool nào được gọi.
 - BẮT BUỘC: khi cần thực hiện hành động (mở app, mở link...), PHẢI gọi tool thật qua cơ chế function calling — TUYỆT ĐỐI không tự viết câu kiểu "Đã mở X" hay "Mở X" nếu chưa thực sự gọi tool đó, vì hành động sẽ không xảy ra thật.
 - Khi {ten} yêu cầu đặt nhắc nhở/hẹn giờ (vd "nhắc tôi lúc 3h chiều", "10 phút nữa nhắc tôi uống nước"), PHẢI gọi tool set_reminder với remind_at là thời điểm TUYỆT ĐỐI (YYYY-MM-DD HH:MM:SS), tự tính dựa vào "Thời gian hiện tại" đã được cho biết bên dưới — TUYỆT ĐỐI không hỏi lại {ten} bây giờ là mấy giờ.
+- Khi {ten} có dấu hiệu nguy hiểm (té ngã, đau ngực, khó thở, chóng mặt nặng, hoảng loạn, nhờ gọi người giúp) — PHẢI gọi ngay tool request_help, không hỏi lại. Chỉ nói "đã báo người thân" khi tool trả về đã gửi được; nếu chưa gửi được thì nói thật và khuyên gọi 115 hoặc gọi to cho hàng xóm.
 - shutdown_computer/restart_computer tắt/khởi động lại TOÀN BỘ máy — CHỈ gọi khi {ten} yêu cầu thật rõ ràng và chắc chắn (vd "tắt máy tính đi"), TUYỆT ĐỐI không suy đoán hộ hay gọi nhầm khi {ten} chỉ muốn tắt 1 ứng dụng/camera/tính năng nào đó."""
 
 STRANGER_NOTE_TEMPLATE = """
@@ -119,17 +120,21 @@ class AIBrain:
         self.system_prompt = SYSTEM_PROMPT_TEMPLATE.format(ten=self.address_term)
         self.stranger_note = STRANGER_NOTE_TEMPLATE.format(ten=self.address_term)
         self.misheard_reply = MISHEARD_REPLY_TEMPLATE.format(ten=self.address_term)
+        self.network_error_reply = (f"Mạng đang có vấn đề nên tôi chưa trả lời được câu này, {self.address_term} "
+                                    "thử lại sau nhé. Nhắc thuốc vẫn hoạt động bình thường.")
 
         gemini_key = os.getenv("GEMINI_API_KEY")
         self._gemini_client = genai.Client(api_key=gemini_key) if gemini_key else None
-        # Online (Gemini) là mặc định khi có key — model mạnh hơn hẳn offline, giờ đã gọi được
-        # tool thật qua function calling nên không còn đánh đổi "thông minh vs làm việc được"
-        # nữa. Nếu chưa cấu hình key thì phải mặc định offline (Ollama), không thì online_mode
-        # báo True trong khi mọi request vẫn âm thầm rơi về offline (_process_loop tự fallback
-        # khi thiếu client) — gây lệch trạng thái hiển thị trên dashboard so với thực tế.
-        self.online_mode = self._gemini_client is not None
-        if not self._gemini_client:
-            print("[AI] Cảnh báo: GEMINI_API_KEY chưa cấu hình — chế độ online sẽ không dùng được, dùng offline")
+        # ai.mode (config/settings.yaml) do gia đình chọn lúc cài đặt:
+        #   online  — Gemini: trả lời tốt, chạy được trên máy rẻ không cần GPU, nhưng lời trò
+        #             chuyện dạng chữ được gửi lên Google (cần gia đình đồng ý).
+        #   offline — Ollama tại nhà: không gửi lời trò chuyện đi đâu, nhưng cần máy có GPU mạnh.
+        # online mà chưa có GEMINI_API_KEY thì phải rơi về offline, không thì online_mode báo
+        # True trong khi mọi request vẫn âm thầm chạy offline — lệch trạng thái so với thực tế.
+        mode = str(config["ai"].get("mode", "online")).strip().lower()
+        self.online_mode = mode == "online" and self._gemini_client is not None
+        if mode == "online" and not self._gemini_client:
+            print("[AI] Cảnh báo: ai.mode=online nhưng GEMINI_API_KEY chưa cấu hình — dùng offline (Ollama)")
 
         self.db = get_db()
 
@@ -146,9 +151,7 @@ class AIBrain:
     def ask(self, text, callback=None, is_owner=None, source=None):
         now = time.time()
         if now - self._last_call_time < self._min_interval:
-            # Không được âm thầm bỏ qua callback — /api/voice (core/web_interface.py) chặn
-            # chờ đúng callback này để trả lời, nếu không gọi thì phía đó phải chờ hết 30s
-            # rồi mới báo timeout cho 1 câu lẽ ra chỉ cần biết ngay là bị bỏ qua.
+            # Không được âm thầm bỏ qua — người dùng phải biết câu vừa nói không được xử lý.
             if callback:
                 callback(f"{self.address_term} nói hơi nhanh, EVA chưa xử lý kịp câu trước — đợi 1-2 giây rồi thử lại nhé.")
             return
@@ -184,7 +187,13 @@ class AIBrain:
                         response = self._call_gemini(text, is_owner, source)
                     except Exception as e:
                         print(f"[AI] Lỗi Gemini ({e}), dùng tạm offline cho câu này")
-                        response = self._call_ollama(text, is_owner, source)
+                        try:
+                            response = self._call_ollama(text, is_owner, source)
+                        except Exception as e2:
+                            # Máy cấu hình nhẹ thường không cài Ollama — nói rõ là do mạng, và
+                            # trấn an rằng nhắc thuốc (không phụ thuộc AI) vẫn chạy.
+                            print(f"[AI] Không có AI offline dự phòng ({e2})")
+                            response = self.network_error_reply
                 else:
                     response = self._call_ollama(text, is_owner, source)
                 if callback:

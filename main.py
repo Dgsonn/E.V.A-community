@@ -15,11 +15,11 @@ from core.web_interface import WebInterface
 from core.face_engine import FaceEngine
 from core.health_monitor import HealthMonitor
 from core.activity_monitor import ActivityMonitor
-from core.daily_reminder import DailyReminder
+from core.daily_reminder import MedicationReminder
 from core.reminder_scheduler import ReminderScheduler
 from core.temp_monitor import TempMonitor
-from core import tools
-from core.remote_exec import executor as remote_executor
+from core import notifier, tools
+from core.voice_engine import DEFAULT_EMERGENCY_WORDS
 
 CAMERA_ON_TRIGGERS = ["mở camera", "bật camera", "hiện camera", "hiển thị camera"]
 CAMERA_OFF_TRIGGERS = ["tắt camera", "đóng camera", "ẩn camera"]
@@ -38,7 +38,7 @@ def run():
 
     # Khởi tạo các module
     # Camera là tính năng phụ, chỉ mở khi được yêu cầu (xem ensure_camera/release_camera) —
-    # dùng để nhận diện chủ nhân, không hiển thị lên đâu cả (giao diện duy nhất là dashboard web)
+    # dùng để nhận diện chủ nhân, không hiển thị lên đâu cả
     # Cách EVA gọi người dùng chính — đổi qua config/settings.yaml (user.address_term),
     # dùng chung cho TTS (câu preload) và các module cảnh báo/nhắc nhở chủ động bên dưới.
     address_term = config.get("user", {}).get("address_term", "Sơn")
@@ -93,23 +93,42 @@ def run():
         print(f"\n[EVA]: {text}") # In ra Terminal để theo dõi
         tts.speak(text)
 
-    # Callback cho các cảnh báo/nhắc nhở CHỦ ĐỘNG (health/activity/daily/reminder) — khác
-    # on_ai_response ở chỗ những nơi này gọi thẳng speak_callback, không đi qua ai_brain.ask()
-    # nên không tự được lưu vào lịch sử ở đâu cả; trước đây cũng chỉ phát được qua loa server,
-    # Sơn ở xa (laptop) sẽ không bao giờ nghe được và không có dấu vết gì để xem lại trên
-    # dashboard dù có mở lại sau đó.
+    # Callback cho các cảnh báo/nhắc nhở CHỦ ĐỘNG (health/activity/medication/reminder/SOS) —
+    # khác on_ai_response ở chỗ những nơi này gọi thẳng speak_callback, không đi qua
+    # ai_brain.ask() nên phải tự lưu vào lịch sử. wait_turn=True: xếp hàng nếu EVA đang nói dở,
+    # không được mất câu nhắc thuốc/cảnh báo.
     def on_proactive_alert(text):
         print(f"\n[EVA]: {text}")
         db.save_conversation("assistant", text)
-        tts.speak(text)
-        if remote_executor.laptop_connected:
-            try:
-                audio_path = tts.get_audio_path(text)
-                with open(audio_path, "rb") as f:
-                    audio_b64 = base64.b64encode(f.read()).decode("ascii")
-                remote_executor.push("speak", {"text": text, "audio_b64": audio_b64})
-            except Exception as e:
-                print(f"[Proactive] Không đẩy được thông báo sang laptop: {e}")
+        tts.speak(text, wait_turn=True)
+
+    # Kêu cứu: gọi từ VoiceEngine (nghe "cứu tôi"... kể cả chưa đánh thức) hoặc khi gõ lệnh.
+    # Trấn an ngay tại chỗ trước, gửi SMS ở luồng riêng (có thể mất vài giây, thử lại nếu lỗi
+    # mạng), rồi báo lại kết quả thật — không bao giờ nói "đã báo" khi chưa gửi được.
+    # Câu cố định (không sinh bằng AI) — để tạo sẵn giọng đọc lúc khởi động, phát được cả khi mất mạng.
+    sos_phrases = {
+        "start": f"{address_term} đừng lo, tôi đang báo cho người thân ngay.",
+        "sent": f"Tôi đã nhắn cho người thân rồi, {address_term} cố gắng giữ bình tĩnh nhé.",
+        "unconfigured": (f"Tôi chưa được cài số điện thoại người thân nên chưa nhắn được. "
+                         f"{address_term} hãy gọi 115 hoặc gọi to cho hàng xóm nhé."),
+        "failed": (f"Tôi chưa nhắn được cho người thân vì lỗi mạng. "
+                   f"{address_term} hãy gọi 115 hoặc gọi to cho hàng xóm nhé."),
+    }
+
+    def trigger_sos(heard):
+        db.log_event("SOS", f"Nghe thấy: {heard}")
+        on_proactive_alert(sos_phrases["start"])
+
+        def send():
+            status = notifier.send_sos(heard)
+            if status == "recent":
+                return  # vừa gửi chưa đầy 1 phút — đã nói kết quả ở lần trước
+            on_proactive_alert(sos_phrases[status])
+
+        threading.Thread(target=send, daemon=True).start()
+
+    safety_cfg = config.get("safety", {})
+    emergency_words = [str(w).lower() for w in safety_cfg.get("emergency_words", DEFAULT_EMERGENCY_WORDS)]
 
     # Theo dõi sức khoẻ chủ động — tự lên tiếng khi phát hiện bất thường trong health_logs
     # (vd ngủ ít liên tục), không cần Sơn hỏi trước.
@@ -120,22 +139,41 @@ def run():
     # health_logs cùng category "giấc ngủ", health_monitor phía trên đọc chung dữ liệu này.
     # speak_callback dùng cho cảnh báo thức trắng đêm (tín hiệu ngược: hoạt động liên tục
     # không nghỉ, thay vì im lặng).
-    activity_monitor = ActivityMonitor(speak_callback=on_proactive_alert, address_term=address_term)
+    # Thêm cảnh báo không thấy hoạt động (safety.inactivity): hỏi han -> không phản hồi -> SMS người thân.
+    activity_monitor = ActivityMonitor(
+        speak_callback=on_proactive_alert,
+        address_term=address_term,
+        inactivity_cfg=safety_cfg.get("inactivity", {}),
+        on_ask=voice.open_session,
+        notify_family=notifier.notify,
+    )
     activity_monitor.start()
 
-    # Nhắc cố định hàng ngày theo lời bác sĩ dặn (dậy ăn sáng + uống thuốc) — giờ lấy từ config,
-    # chỉnh trong config/settings.yaml (health.daily_reminder_time) nếu cần đổi. Message có thể
-    # chứa "{ten}", được thay bằng address_term (cả giá trị mặc định lẫn giá trị tự cấu hình).
+    # Nhắc uống thuốc theo nhiều khung giờ (health.medication_reminders) + hỏi lại tới khi xác
+    # nhận "uống rồi" (health.medication_confirm). Message có thể chứa "{ten}" = address_term.
     health_cfg = config.get("health", {})
-    daily_message_template = health_cfg.get(
-        "daily_reminder_message", "{ten} ơi, đã đến giờ dậy ăn sáng và uống thuốc rồi đó."
-    )
-    daily_reminder = DailyReminder(
-        reminder_time=health_cfg.get("daily_reminder_time", "07:00"),
-        message=daily_message_template.format(ten=address_term),
+    schedules = health_cfg.get("medication_reminders") or [{
+        "time": health_cfg.get("daily_reminder_time", "07:00"),
+        "message": health_cfg.get("daily_reminder_message", "{ten} ơi, đã đến giờ dậy ăn sáng và uống thuốc rồi đó."),
+    }]
+    confirm_cfg = health_cfg.get("medication_confirm", {})
+    medication = MedicationReminder(
+        schedules,
+        address_term=address_term,
+        db=db,
         speak_callback=on_proactive_alert,
+        on_ask=voice.open_session,
+        notify_family=notifier.notify if confirm_cfg.get("notify_family_on_missed", True) else None,
+        retry_mins=confirm_cfg.get("retry_mins", 15),
+        max_asks=confirm_cfg.get("max_asks", 3),
+        # Chào buổi sáng + đọc thời tiết trước lần nhắc thuốc buổi sáng (user.city)
+        weather_callback=lambda: tools.weather_brief(config.get("user", {}).get("city", "")),
     )
-    daily_reminder.start()
+    medication.start()
+
+    # Tạo sẵn giọng đọc cho mọi câu an toàn cố định lúc còn mạng (Edge-TTS cần internet để tạo câu mới)
+    tts.preload(list(sos_phrases.values()) + medication.fixed_phrases()
+                + activity_monitor.fixed_phrases() + [ai_brain.network_error_reply])
 
     # Nhắc nhở tuỳ ý do người dùng tự đặt qua tool set_reminder (core/tools.py) — khác
     # daily_reminder ở trên (cố định, lặp lại mỗi ngày), đây là nhắc đúng 1 lần vào thời điểm đã hẹn.
@@ -155,8 +193,22 @@ def run():
     # Callback khi nhận được giọng nói hoặc chatbot text
     def on_user_input(text, extra_callback=None, source="voice"):
         print(f"\n[SIR]: {text}")
+        activity_monitor.mark_presence()
 
         text_lower = text.lower().strip()
+        # Giọng nói đã được VoiceEngine bắt kêu cứu từ trước (kể cả chưa đánh thức) — ở đây
+        # chỉ cần bắt thêm cho lệnh gõ chữ.
+        if source != "voice" and any(w in text_lower for w in emergency_words):
+            trigger_sos(text_lower)
+            return
+
+        # Đang chờ xác nhận uống thuốc -> "uống rồi"/"chưa" xử lý ngay, không qua AI
+        med_reply = medication.handle_reply(text_lower)
+        if med_reply:
+            on_ai_response(med_reply)
+            if extra_callback:
+                extra_callback(med_reply)
+            return
         if any(p in text_lower for p in CAMERA_ON_TRIGGERS):
             show_camera[0] = True
             on_ai_response(f"Đã bật camera, {address_term}.")
@@ -171,13 +223,7 @@ def run():
             return
 
         def combined(reply):
-            if source == "web_voice":
-                # Giọng nói ghi từ trình duyệt — Sơn nghe qua chính trình duyệt (route /api/voice
-                # tự lo phần TTS riêng), KHÔNG phát lại qua loa server (tránh nói vào phòng trống
-                # + tránh 2 nơi cùng ghi đè 1 file cache TTS cùng lúc).
-                print(f"\n[EVA]: {reply}")
-            else:
-                on_ai_response(reply)
+            on_ai_response(reply)
             if extra_callback:
                 extra_callback(reply)
 
@@ -188,68 +234,31 @@ def run():
                 owner = voice.last_speaker_owner if voice.last_speaker_owner is not None else is_owner_flag[0]
             else:
                 # bảo mật đang tắt (config voice.security_enabled=false) — vẫn nhận diện & hiển thị
-                # đúng người đang nói (voice.last_speaker_name/owner cho dashboard), nhưng không
+                # đúng người đang nói (voice.last_speaker_name), nhưng không
                 # chặn quyền dùng tool của bất kỳ ai.
                 owner = True
         else:
-            # gõ lệnh trực tiếp qua web/terminal — đã cần quyền truy cập máy/mạng của Sơn rồi
+            # gõ lệnh trực tiếp qua terminal — đã cần quyền truy cập máy rồi
             owner = True
 
         ai_brain.ask(text, callback=combined, is_owner=owner, source=source)
 
+    voice.on_emergency = trigger_sos
+    voice.on_speech_heard = activity_monitor.mark_presence
     # Câu chào khi vừa nghe thấy từ đánh thức ("dậy đi") — phát trước khi xử lý lệnh (nếu có).
     # Dùng đúng tên người vừa đánh thức (đa hồ sơ giọng nói) thay vì mặc định address_term.
     voice.on_wake = lambda name=None: on_ai_response(f"Hệ thống đã online. Tôi đã sẵn sàng phục vụ, {name or address_term}.")
 
-    # Trạng thái thật của hệ thống — dùng cho dashboard web (core/web_interface.py)
-    # cpu/ram lấy từ tools.get_live_stats() (cache dùng chung) để khớp đúng số EVA báo cáo qua tool
+    # Trạng thái tóm tắt cho trang người thân (core/web_interface.py) — chỉ những gì trang cần
     def get_status():
-        cpu, ram = tools.get_live_stats()
         return {
-            "cpu": cpu,
-            "ram": ram,
-            "online_mode": ai_brain.online_mode,
-            "model": ai_brain.online_model if ai_brain.online_mode else ai_brain.model,
             "session_active": voice.session_active,
-            # is_owner ở đây là nhận diện THÔ (ai đang nói, không tính chính sách bảo mật) — khác
-            # với quyền THỰC TẾ dùng để cấp phép tool ở on_user_input() phía trên, nơi
-            # security_enabled=False sẽ luôn cho owner=True bất kể nhận diện được ai. Gửi kèm
-            # security_enabled để dashboard tự diễn giải đúng, tránh hiển thị mâu thuẫn với
-            # quyền thật đang được cấp (xem web_interface.py's ownerVal).
-            "is_owner": voice.last_speaker_owner if voice.last_speaker_owner is not None else is_owner_flag[0],
-            "owner_name": voice.last_speaker_name,
-            "security_enabled": voice.security_enabled,
-            "voice_id_enrolled": voice._voice_id.has_profiles if voice._voice_id else False,
-            "voice_profiles": [p["name"] for p in voice._voice_id.profiles] if voice._voice_id else [],
-            "camera_on": show_camera[0],
             "uptime_secs": int(time.time() - app_start_time),
-            "wake_word": config["eva"]["wake_word"],
         }
 
-    # Thu hồi quyền điều khiển của 1 người đã đăng ký giọng nói — gọi từ dashboard web
-    def revoke_voice(name):
-        if voice._voice_id:
-            return voice._voice_id.revoke(name)
-        return False
-
-    # laptop_idle_agent.py (chạy trên laptop) poll route này định kỳ để lấy lệnh cần thực thi
-    # tại chỗ (mở app/link) — mark_laptop_seen() luôn được gọi trước để remote_exec.executor
-    # biết laptop còn kết nối hay không, kể cả những lượt không có lệnh nào chờ.
-    def laptop_poll():
-        remote_executor.mark_laptop_seen()
-        return remote_executor.take_pending()
-
-    # Giao diện duy nhất của EVA: dashboard web (gõ lệnh từ điện thoại/máy khác cùng mạng LAN)
-    web = WebInterface(
-        on_user_input, db, get_status,
-        on_shutdown=shutdown_event.set,
-        on_revoke_voice=revoke_voice,
-        on_laptop_heartbeat=activity_monitor.report_laptop_idle,
-        on_laptop_poll=laptop_poll,
-        on_laptop_result=remote_executor.report_result,
-        on_transcribe_audio=voice.transcribe_uploaded_audio,
-        on_synthesize_reply=tts.get_audio_path,
-    )
+    # Web chỉ còn trang chỉ-xem /family cho người thân — EVA cho người cao tuổi điều khiển hoàn
+    # toàn bằng giọng nói tại chỗ, không có dashboard điều khiển từ xa.
+    web = WebInterface(db, get_status)
     web.start()
 
     # -----------------------------------------------------
@@ -272,7 +281,7 @@ def run():
     if sys.stdin and sys.stdin.isatty():
         threading.Thread(target=terminal_input_loop, daemon=True).start()
     else:
-        print("[MAIN] Không có terminal tương tác — chỉ nhận lệnh qua dashboard web.")
+        print("[MAIN] Không có terminal tương tác — chỉ nhận lệnh bằng giọng nói.")
 
     # Bật mic ngay khi Whisper nạp xong — không còn gesture nên phải tự chờ,
     # tránh gọi activate() quá sớm lúc model chưa sẵn sàng (activate() sẽ bỏ qua âm thầm)
@@ -287,7 +296,7 @@ def run():
     last_face_check = 0.0
     camera_fail_count = 0
 
-    # Không có cửa sổ hiển thị nào nữa — dashboard web là giao diện duy nhất.
+    # Không có cửa sổ hiển thị nào — giao tiếp chính bằng giọng nói.
     # Vòng lặp này chỉ còn nhiệm vụ: đọc camera (khi được bật) để xác minh chủ nhân định kỳ.
     while not shutdown_event.is_set():
         if show_camera[0]:

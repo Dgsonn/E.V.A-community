@@ -4,7 +4,7 @@
 
 ## 1. Tắt sleep khi cắm sạc
 
-EVA phải chạy liên tục — máy đi ngủ (sleep/standby) là dừng hết (mic, dashboard, mọi thứ).
+EVA phải chạy liên tục — máy đi ngủ (sleep/standby) là dừng hết (mic, nhắc thuốc, cảnh báo, mọi thứ).
 Chạy PowerShell (không cần Admin):
 
 ```powershell
@@ -52,13 +52,13 @@ Get-Content logs\eva.log -Wait -Tail 30
 
 ## IP LAN của máy này
 
-Dashboard và `laptop_idle_agent.py` (chạy trên laptop hàng ngày) cần đúng IP LAN của máy
-server để kết nối tới `http://<IP-máy-server>:5000`. Lấy IP:
+Link trang người thân (`http://<IP-máy>:5000/family?token=...`) cần đúng IP LAN của máy
+chạy EVA. Lấy IP:
 
 ```powershell
 ipconfig | findstr /C:"IPv4"
 ```
 
-IP này có thể đổi mỗi lần router cấp lại DHCP — nếu thấy laptop_idle_agent.py mất kết nối sau
+IP này có thể đổi mỗi lần router cấp lại DHCP — nếu người thân báo link không mở được sau
 1 thời gian, kiểm tra lại IP trước. Muốn ổn định lâu dài, đặt DHCP reservation cho máy này
 trên router (theo địa chỉ MAC) để IP không đổi.

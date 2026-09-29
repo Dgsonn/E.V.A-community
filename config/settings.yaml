@@ -1,11 +1,12 @@
 user:
   address_term: "Sơn"    # cách EVA gọi người dùng chính trong mọi câu trả lời — đổi theo hộ gia đình, vd "Bác", "Ông Ba", "Bà Tư"
+  city: "Hà Nội"         # thành phố để EVA đọc thời tiết lúc chào buổi sáng (cần OPENWEATHER_API_KEY trong .env)
   speech_rate: "+0%"     # tốc độ nói edge-tts — số âm để nói chậm hơn (vd "-15%"), phù hợp người nghe chậm
 
 eva:
   name: EVA
   wake_word: "dậy đi"          # đánh thức từ chế độ chờ — dùng từ tiếng Việt thật để Whisper nhận ổn định
-  wake_word_aliases: ["dậy đi", "dạy đi", "dậy nào", "thức dậy"]
+  wake_word_aliases: ["dậy đi", "dạy đi", "dậy nào", "thức dậy", "eva ơi", "e va ơi", "ê va ơi", "êva ơi", "i va ơi"]  # "EVA ơi" có nhiều biến thể vì PhoWhisper có thể viết tên riêng "EVA" theo nhiều cách
   sleep_word: "tạm biệt"          # quay lại chế độ chờ, kết thúc phiên đang hoạt động — duy trì vô thời hạn tới khi nghe từ này
   sleep_word_aliases: ["tạm biệt", "chào tạm biệt", "thôi nhé", "bái bai"]
   interrupt_word: "dừng lại"      # ngắt lời EVA khi đang phát TTS — chỉ khớp lúc đang nói, không ảnh hưởng lệnh bình thường
@@ -20,7 +21,8 @@ camera:
 
 voice:
   security_enabled: false  # false = vẫn nhận diện & hiển thị đúng tên người đang nói, nhưng KHÔNG chặn ai cả (đánh thức/dùng tool thoải mái); true = bật lại chặn giọng lạ như trước
-  model: large           # PhoWhisper (vinai/PhoWhisper-<model>) — model Whisper chuyên biệt cho tiếng Việt, thay cho Whisper đa ngôn ngữ gốc hay dịch sai/ảo giác. Nâng từ medium lên large để giảm ảo giác/nghe sai câu lệnh — LƯU Ý: cộng dồn với qwen2.5:14b (Ollama offline) có thể vượt 12GB VRAM nếu vừa offline vừa dùng voice cùng lúc, xem core/temp_monitor.py không theo dõi VRAM nên không tự cảnh báo được trường hợp này
+  device: auto           # auto = dùng card đồ hoạ NVIDIA nếu có, không thì CPU; cpu = luôn dùng CPU (máy phổ thông không có card đồ hoạ)
+  model: large           # máy KHÔNG có card đồ hoạ: đổi thành small (large chạy bằng CPU quá chậm).  PhoWhisper (vinai/PhoWhisper-<model>) — model Whisper chuyên biệt cho tiếng Việt, thay cho Whisper đa ngôn ngữ gốc hay dịch sai/ảo giác. Nâng từ medium lên large để giảm ảo giác/nghe sai câu lệnh — LƯU Ý: cộng dồn với qwen2.5:14b (Ollama offline) có thể vượt 12GB VRAM nếu vừa offline vừa dùng voice cùng lúc, xem core/temp_monitor.py không theo dõi VRAM nên không tự cảnh báo được trường hợp này
   language: vi
   vad_aggressiveness: 2  # webrtcvad: 0 (lỏng) - 3 (chặt nhất, dễ cắt mất giọng nhỏ)
   mic_gain: 4.0           # khuếch đại tín hiệu mic trước khi phát hiện giọng nói — tăng nếu vẫn khó nghe, giảm nếu bị vỡ tiếng/ồn
@@ -33,15 +35,59 @@ voice:
   clap_window_secs: 1.5          # Khoảng cách tối đa giữa 2 tiếng vỗ để tính là 1 lần đánh thức
 
 ai:
-  model: qwen2.5:14b  # Nâng từ 7b lên 14b (~9GB VRAM, có GPU RTX 3060 12GB) — suy luận tốt hơn. Nếu sau này đổi máy/GPU yếu hơn, hạ về qwen2.5:latest (7b, ~4.7GB)
+  # online  = Google Gemini (cần GEMINI_API_KEY trong .env, nên dùng gói TRẢ PHÍ — gói miễn phí
+  #           Google có thể dùng dữ liệu để cải thiện sản phẩm). Chạy được trên máy rẻ không cần GPU.
+  #           Lời trò chuyện dạng chữ (10 lượt gần nhất) được gửi lên Google — PHẢI báo và được gia
+  #           đình đồng ý lúc cài đặt. Giọng nói gốc, khuôn mặt, cơ sở dữ liệu vẫn ở tại nhà.
+  # offline = Ollama chạy tại nhà (model bên dưới), không gửi lời trò chuyện đi đâu — cần GPU mạnh.
+  # Nhắc thuốc, gọi cứu, cảnh báo không hoạt động KHÔNG dùng AI nên chạy được ở cả 2 chế độ.
+  mode: online
+  model: qwen2.5:14b # Nâng từ 7b lên 14b (~9GB VRAM, có GPU RTX 3060 12GB) — suy luận tốt hơn. Nếu sau này đổi máy/GPU yếu hơn, hạ về qwen2.5:latest (7b, ~4.7GB)
   max_history: 10
   temperature: 0.7
 
 health:
-  # Nhắc cố định hàng ngày theo lời bác sĩ dặn (dậy ăn sáng + uống thuốc) — khác HealthMonitor/
-  # ActivityMonitor (dựa trên dữ liệu/hành vi), đây chỉ đơn giản báo đúng giờ mỗi ngày.
-  daily_reminder_time: "07:00"
-  daily_reminder_message: "{ten} ơi, đã đến giờ dậy ăn sáng và uống thuốc theo đúng lời bác sĩ dặn rồi đó — đừng bỏ qua nhé."  # {ten} được thay bằng user.address_term lúc chạy
+  # Nhắc uống thuốc theo giờ bác sĩ dặn, mỗi ngày (core/daily_reminder.py) — thêm/bớt khung giờ tuỳ
+  # đơn thuốc. {ten} được thay bằng user.address_term lúc chạy.
+  medication_reminders:
+    - time: "07:00"
+      message: "{ten} ơi, đã đến giờ ăn sáng và uống thuốc buổi sáng theo lời bác sĩ dặn rồi đó."
+    - time: "19:00"
+      message: "{ten} ơi, đến giờ uống thuốc buổi tối rồi đó."
+  # Sau khi nhắc, EVA hỏi lại cho tới khi nghe "uống rồi" — im lặng thì hỏi lại mỗi retry_mins phút,
+  # hỏi đủ max_asks lần vẫn không xác nhận thì ghi "bỏ lỡ" và nhắn SMS cho người thân.
+  medication_confirm:
+    retry_mins: 15
+    max_asks: 3
+    notify_family_on_missed: true
+
+safety:
+  # Câu kêu cứu — EVA nhận ra kể cả khi CHƯA nói "dậy đi", nhắn SMS cho người thân ngay (không qua AI).
+  # Chỉ khớp nguyên cụm; tránh từ đơn ngắn dễ trúng nhầm từ TV/nói chuyện thường.
+  emergency_words: ["cứu tôi", "cứu với", "cứu em", "cứu bà", "cứu ông", "gọi người giúp", "gọi con"]
+  # Không thấy hoạt động (không ai chạm máy, không nghe tiếng người nói) -> EVA hỏi han -> không ai
+  # phản hồi trong response_timeout_mins phút -> nhắn SMS cho người thân (core/activity_monitor.py).
+  inactivity:
+    enabled: true
+    morning_deadline: "10:00"   # quá giờ này mà từ 4h sáng chưa thấy hoạt động -> hỏi han
+    day_start: "07:00"          # ban ngày: im lặng liên tục quá max_idle_hours -> hỏi han
+    day_end: "21:00"
+    max_idle_hours: 4
+    response_timeout_mins: 15
+
+caregiver:
+  # Số điện thoại người thân nhận SMS khi có cảnh báo khẩn cấp (core/notifier.py, gửi qua eSMS.vn).
+  # API key/secret để trong .env (ESMS_API_KEY, ESMS_SECRET_KEY). Để trống thì tính năng tự tắt.
+  phones: []             # vd ["0912345678", "0987654321"]
+  sms_brandname: ""      # brandname đã đăng ký với eSMS — nội dung tin phải khớp mẫu đã đăng ký
+  # Danh bạ để NCT gọi video bằng giọng nói ("gọi cho Lan", "gọi con gái") — tool call_family.
+  # call_url: link phòng họp cố định của người thân (Google Meet/Zalo...), EVA mở link này trên máy.
+  # phone (tuỳ chọn): EVA nhắn SMS kèm link để người thân vào cuộc gọi ngay.
+  contacts: []
+  #  - name: "Lan"
+  #    relation: "con gái"
+  #    call_url: "https://meet.google.com/abc-defg-hij"
+  #    phone: "0912345678"
 
 system:
   # Máy chạy 24/7 làm server (xem core/temp_monitor.py) — cảnh báo chủ động nếu GPU vượt ngưỡng

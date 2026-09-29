@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AccessibilityMenu } from "@/components/AccessibilityMenu";
 import { api, UnauthorizedError, type FamilyStatusResponse } from "@/lib/api";
 
 // SQLite lưu timestamp dạng "YYYY-MM-DD HH:MM:SS[.ffffff]" (xem core/database.py) — đổi khoảng
@@ -78,6 +79,7 @@ export default function FamilyPage() {
       <div className="font-[family-name:var(--font-display)] font-bold text-xl tracking-[0.2em] text-[var(--cyan)] [text-shadow:0_0_16px_rgba(45,212,255,0.5)]">
         EVA — Tình trạng
       </div>
+      <AccessibilityMenu />
 
       {error && <p className="text-base text-[var(--red)] text-center">{error}</p>}
 

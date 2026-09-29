@@ -38,7 +38,7 @@ class ActivityMonitor:
     """Suy đoán giấc ngủ từ hành vi dùng máy — không cần Sơn tự khai báo. 2 tín hiệu:
       1. Thời gian máy "im lặng" (GetLastInputInfo) — bắt trường hợp máy vẫn bật cả đêm
          nhưng không ai chạm bàn phím/chuột.
-      2. Khoảng cách thời gian thực giữa 2 lần poll (time.time()) — bắt trường hợp máy/laptop
+      2. Khoảng cách thời gian thực giữa 2 lần poll (time.time()) — bắt trường hợp máy
          thực sự vào sleep/ngủ đông (lúc đó GetTickCount tạm dừng đếm hoặc không đáng tin cậy,
          nhưng time.time() sau khi máy tỉnh lại vẫn phản ánh đúng thời gian thực đã trôi qua).
     Ghi trực tiếp vào health_logs với category "giấc ngủ" — dùng chung hạ tầng với log thủ
@@ -50,14 +50,12 @@ class ActivityMonitor:
     chính xác. Cũng chỉ bắt được khoảng ngủ xảy ra TRONG LÚC EVA đang chạy nền — nếu tắt hẳn
     app qua đêm rồi mở lại sáng hôm sau thì khoảng đó không được ghi nhận.
 
-    Từ khi EVA chuyển sang chạy trên PC server riêng (không phải máy Sơn dùng hàng ngày),
-    GetLastInputInfo cục bộ không còn phản ánh đúng việc Sơn có đang dùng máy hay không —
-    server hầu như luôn "im lặng" dù Sơn đang làm việc bận rộn trên laptop. report_laptop_idle()
-    nhận báo cáo định kỳ từ laptop_idle_agent.py chạy trên laptop, _effective_idle_seconds()
-    gộp cả 2 nguồn (lấy giá trị nhỏ hơn = có hoạt động ở bất kỳ đâu đều tính) — nếu chưa có
-    báo cáo nào (agent chưa chạy/mất mạng) thì tự rơi về đúng hành vi cũ (chỉ tính server)."""
+    Thêm 1 việc (không liên quan giấc ngủ): cảnh báo KHÔNG THẤY HOẠT ĐỘNG — quá lâu không thấy
+    ai chạm máy và không nghe thấy tiếng người nói (mark_presence(), gọi từ VoiceEngine/main.py)
+    -> EVA hỏi han -> không ai phản hồi -> nhắn người thân. Xem _check_inactivity()."""
 
-    def __init__(self, poll_interval_secs=POLL_INTERVAL_SECS, speak_callback=None, address_term="Sơn"):
+    def __init__(self, poll_interval_secs=POLL_INTERVAL_SECS, speak_callback=None, address_term="Sơn",
+                 inactivity_cfg=None, on_ask=None, notify_family=None):
         self.poll_interval = poll_interval_secs
         self.db = get_db()
         self.speak = speak_callback
@@ -66,29 +64,40 @@ class ActivityMonitor:
         self._last_check_time = time.time()
         self._active_since = time.time()  # mốc bắt đầu chuỗi hoạt động liên tục hiện tại (chưa nghỉ)
         self._last_continuous_alert = None
-        self._laptop_idle_seconds = None
-        self._last_heartbeat_time = None
-        self._heartbeat_stale_secs = poll_interval_secs * 2  # quá lâu không có báo cáo -> coi như agent không chạy
+        self._last_presence = time.time()  # coi như vừa có người lúc EVA khởi động — tránh báo động ngay
 
-    def report_laptop_idle(self, idle_seconds):
-        """Gọi từ core/web_interface.py mỗi khi laptop_idle_agent.py (chạy trên laptop) gửi
-        heartbeat về — lưu lại để _effective_idle_seconds() gộp vào tín hiệu của server."""
-        self._laptop_idle_seconds = float(idle_seconds)
-        self._last_heartbeat_time = time.time()
+        cfg = inactivity_cfg or {}
+        self._inactivity_enabled = bool(cfg.get("enabled", True))
+        self._morning_deadline = self._parse_hm(cfg.get("morning_deadline", "10:00"))
+        self._day_start = self._parse_hm(cfg.get("day_start", "07:00"))
+        self._day_end = self._parse_hm(cfg.get("day_end", "21:00"))
+        self._max_idle = timedelta(hours=float(cfg.get("max_idle_hours", 4)))
+        self._response_timeout = timedelta(minutes=float(cfg.get("response_timeout_mins", 15)))
+        self.on_ask = on_ask
+        self.notify_family = notify_family
+        self._checkin = None            # {"asked_at", "asks", "reason"} khi đang chờ phản hồi
+        self._morning_done_date = None  # đã xét luật "buổi sáng" hôm nay chưa
+        self._idle_alerted = False      # đã hỏi cho chuỗi im lặng ban ngày hiện tại chưa
 
-    def _effective_idle_seconds(self):
-        """Idle của server, gộp thêm idle của laptop (nếu có báo cáo gần đây) — lấy giá trị
-        NHỎ HƠN vì chỉ cần 1 trong 2 máy có hoạt động là coi như Sơn đang dùng."""
-        local_idle = get_idle_seconds()
-        if (
-            self._last_heartbeat_time is not None
-            and (time.time() - self._last_heartbeat_time) <= self._heartbeat_stale_secs
-        ):
-            return min(local_idle, self._laptop_idle_seconds)
-        return local_idle
+    @staticmethod
+    def _parse_hm(value):
+        h, m = str(value).strip().split(":")
+        return int(h), int(m)
+
+    def mark_presence(self):
+        """Có dấu hiệu người ở nhà: nghe thấy tiếng nói (không lưu nội dung) hoặc có lệnh gửi
+        tới EVA. Gọi từ VoiceEngine.on_speech_heard và main.py's on_user_input."""
+        self._last_presence = time.time()
+
+    def _last_active_time(self):
+        """Mốc hoạt động gần nhất: lấy cái MUỘN HƠN giữa thao tác bàn phím/chuột và tiếng người."""
+        return max(time.time() - get_idle_seconds(), self._last_presence)
 
     def start(self):
         threading.Thread(target=self._loop, daemon=True).start()
+        if self._inactivity_enabled:
+            threading.Thread(target=self._inactivity_loop, daemon=True).start()
+            print(f"[Activity] Cảnh báo không thấy hoạt động đã bật (ban ngày im lặng quá {self._max_idle.total_seconds() / 3600:g} tiếng, hoặc quá {self._morning_deadline[0]:02d}:{self._morning_deadline[1]:02d} chưa thấy dậy)")
         print(f"[Activity] Suy đoán giấc ngủ tự động đã bật (poll mỗi {self.poll_interval // 60} phút)")
 
     def _loop(self):
@@ -101,7 +110,7 @@ class ActivityMonitor:
 
     def _check(self):
         now = time.time()
-        idle = self._effective_idle_seconds()
+        idle = get_idle_seconds()
 
         idle_hours = self._last_idle_seconds / 3600
         gap_hours = (now - self._last_check_time) / 3600
@@ -165,3 +174,89 @@ class ActivityMonitor:
         print(f"[Activity] Cảnh báo hoạt động liên tục: {message}")
         if self.speak:
             self.speak(message)
+
+    # ------------------------------------------------------------------
+    # Cảnh báo không thấy hoạt động -> hỏi han -> báo người thân
+    # ------------------------------------------------------------------
+    def _inactivity_loop(self):
+        while True:
+            try:
+                self._check_inactivity()
+            except Exception as e:
+                print(f"[Activity] Lỗi kiểm tra không hoạt động: {e}")
+            time.sleep(60)
+
+    def _at(self, now, hm):
+        return now.replace(hour=hm[0], minute=hm[1], second=0, microsecond=0)
+
+    def _check_inactivity(self):
+        now = datetime.now()
+        last_active = datetime.fromtimestamp(self._last_active_time())
+
+        if self._checkin:
+            self._follow_up_checkin(now, last_active)
+            return
+
+        # Luật 1 — buổi sáng: quá morning_deadline mà từ 4 giờ sáng chưa thấy hoạt động gì
+        deadline = self._at(now, self._morning_deadline)
+        if now >= deadline and self._morning_done_date != now.date():
+            self._morning_done_date = now.date()
+            if last_active < now.replace(hour=4, minute=0, second=0, microsecond=0):
+                self._start_checkin(now, f"quá {deadline:%H:%M} sáng chưa thấy dậy")
+                return
+
+        # Luật 2 — ban ngày: im lặng liên tục quá max_idle (chỉ tính trong day_start..day_end)
+        day_start = self._at(now, self._day_start)
+        in_day = day_start <= now <= self._at(now, self._day_end)
+        # tính im lặng từ đầu ngày trở đi — giấc ngủ đêm qua không được tính là "im lặng bất thường"
+        idle_for = now - max(last_active, day_start)
+        if idle_for < self._max_idle:
+            self._idle_alerted = False  # đã có hoạt động lại -> chuỗi im lặng mới
+        elif in_day and not self._idle_alerted:
+            self._idle_alerted = True
+            self._start_checkin(now, f"không thấy hoạt động từ {last_active:%H:%M}")
+
+    def _ask_text(self):
+        return (f"{self.address_term} ơi, {self.address_term} có ổn không ạ? "
+                f"Nếu ổn thì nói với tôi một câu nhé.")
+
+    def _notified_text(self):
+        return f"{self.address_term} ơi, tôi đã nhắn cho người thân để họ gọi hỏi thăm."
+
+    def fixed_phrases(self):
+        """Câu EVA có thể nói — để TTSEngine.preload() tạo sẵn giọng đọc lúc còn mạng."""
+        return [self._ask_text(), self._notified_text()]
+
+    def _ask(self):
+        msg = self._ask_text()
+        print(f"[Activity] Hỏi han: {msg}")
+        if self.speak:
+            self.speak(msg)
+        if self.on_ask:
+            self.on_ask()
+
+    def _start_checkin(self, now, reason):
+        self._checkin = {"asked_at": now, "asks": 1, "reason": reason}
+        self._ask()
+
+    def _follow_up_checkin(self, now, last_active):
+        c = self._checkin
+        # Có tiếng nói/thao tác sau khi hỏi -> người dùng ổn, không làm gì thêm
+        if last_active > c["asked_at"]:
+            print("[Activity] Đã có phản hồi sau khi hỏi han — không báo người thân.")
+            self._checkin = None
+            return
+        waited = now - c["asked_at"]
+        if c["asks"] == 1 and waited >= self._response_timeout / 2:
+            c["asks"] = 2  # hỏi thêm 1 lần giữa chừng, phòng lần đầu không nghe thấy
+            self._ask()
+            return
+        if waited >= self._response_timeout:
+            self._checkin = None
+            text = (f"EVA không thấy {self.address_term} hoạt động ({c['reason']}), đã hỏi "
+                    f"{c['asks']} lần nhưng không có phản hồi. Nên gọi điện kiểm tra.")
+            self.db.log_event("INACTIVITY_ALERT", text)
+            sent = self.notify_family(text) if self.notify_family else False
+            print(f"[Activity] Không có phản hồi — {'đã' if sent else 'CHƯA'} báo người thân.")
+            if sent and self.speak:
+                self.speak(self._notified_text())

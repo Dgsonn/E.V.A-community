@@ -7,6 +7,8 @@ import unicodedata
 from collections import deque, Counter
 from difflib import SequenceMatcher
 
+DEFAULT_EMERGENCY_WORDS = ["cứu tôi", "cứu với", "cứu em", "cứu bà", "cứu ông", "gọi người giúp", "gọi con"]
+
 
 class _ClapDetector:
     """Phát hiện mẫu vỗ tay/búng tay: 2 tiếng bộp ngắn (tấn nhanh, tắt nhanh) trong
@@ -62,6 +64,13 @@ class VoiceEngine:
         self._wake_words        = self._build_word_list(config, "wake_word", "dậy đi", "wake_word_aliases")
         self._sleep_words       = self._build_word_list(config, "sleep_word", "tạm biệt", "sleep_word_aliases")
         self._interrupt_words   = self._build_word_list(config, "interrupt_word", "dừng lại", "interrupt_word_aliases")
+        # Câu kêu cứu — bắt được cả khi CHƯA đánh thức (người bị ngã không thể nhớ nói "dậy đi"
+        # trước). Chỉ khớp nguyên cụm (không fuzzy) để hạn chế báo nhầm từ TV/nói chuyện.
+        self._emergency_words   = [
+            str(w).strip().lower()
+            for w in config.get("safety", {}).get("emergency_words", DEFAULT_EMERGENCY_WORDS)
+            if str(w).strip()
+        ]
 
         self._model            = None
         self._wake_model       = None
@@ -83,6 +92,8 @@ class VoiceEngine:
         self.on_listening      = None
         self.on_wake           = None  # gọi khi vừa đánh thức, trước cả khi có lệnh — dùng để phát câu chào mở đầu
         self.on_interrupt      = None  # gọi khi nghe từ ngắt lời trong lúc TTS đang phát — dùng để dừng TTS ngay
+        self.on_emergency      = None  # gọi khi nghe câu kêu cứu (kể cả lúc chưa đánh thức), tham số: câu đã nghe
+        self.on_speech_heard   = None  # gọi mỗi khi nghe được tiếng người nói (không kèm nội dung) — tín hiệu "có người ở nhà" cho ActivityMonitor
         # device will be determined when loading model (lazy import)
         self.device = "cpu"
         
@@ -119,28 +130,36 @@ class VoiceEngine:
                 print("[STT] Voice input disabled. Install 'transformers' and 'torch' in the venv.")
                 return
 
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            # voice.device: auto = dùng GPU nếu có; cpu = ép chạy CPU (máy phổ thông không có card đồ hoạ)
+            want = str(self.config["voice"].get("device", "auto")).strip().lower()
+            self.device = "cuda" if (want != "cpu" and torch.cuda.is_available()) else "cpu"
             device_idx = 0 if self.device == "cuda" else -1
             # fp16 trên GPU giảm ~1 nửa VRAM so với fp32 mặc định, chất lượng nhận dạng
-            # không đổi đáng kể — quan trọng vì Ollama (qwen2.5 7B) đã chiếm ~4GB/6GB VRAM
-            # của RTX 3050, gần như không còn dư nếu STT vẫn nạp fp32.
+            # không đổi đáng kể — quan trọng vì Ollama có thể chiếm phần lớn VRAM.
             torch_dtype = torch.float16 if self.device == "cuda" else torch.float32
 
             # Model nhẹ dùng lúc chờ (chưa "dậy đi") — luôn chạy CPU dù có GPU hay không.
             # Đây là model chỉ cần nhận ra từ đánh thức trong lúc rảnh (phần lớn thời gian
-            # hệ thống ở trạng thái này), không cần tốc độ GPU — để GPU rảnh hẳn cho Ollama
+            # hệ thống ở trạng thái này), không cần tốc độ GPU — để GPU rảnh cho việc khác
             # thay vì giữ VRAM suốt cả lúc không làm việc gì.
             wake_model_id = "vinai/PhoWhisper-small"
-            print(f"[STT] Đang nạp {wake_model_id} (model nhẹ, luôn chạy CPU để dành VRAM cho Ollama)...")
+            print(f"[STT] Đang nạp {wake_model_id} (model nhẹ lúc chờ, chạy CPU)...")
             self._wake_model = pipeline("automatic-speech-recognition", model=wake_model_id, device=-1)
 
-            # Model đầy đủ chỉ dùng sau khi đã "dậy đi" — lúc thực sự xử lý lệnh, nên vẫn
-            # đáng để chạy GPU (fp16) cho nhanh.
+            # Model đầy đủ chỉ dùng sau khi đã "dậy đi" — lúc thực sự xử lý lệnh.
             model_id = f"vinai/PhoWhisper-{self._model_name}"
-            print(f"[STT] Đang nạp {model_id} (model đầy đủ, dùng lúc làm việc, {torch_dtype})...")
-            self._model = pipeline(
-                "automatic-speech-recognition", model=model_id, device=device_idx, dtype=torch_dtype
-            )
+            if self.device == "cpu" and model_id == wake_model_id:
+                # Máy không có GPU và chọn model small: dùng chung 1 model cho cả lúc chờ lẫn
+                # lúc làm việc — đỡ tốn gấp đôi RAM cho 2 bản giống hệt nhau.
+                self._model = self._wake_model
+            else:
+                if self.device == "cpu" and self._model_name in ("medium", "large"):
+                    print(f"[STT] Cảnh báo: đang chạy PhoWhisper-{self._model_name} bằng CPU — sẽ rất chậm. "
+                          "Máy không có card đồ hoạ nên đặt voice.model: small trong config/settings.yaml.")
+                print(f"[STT] Đang nạp {model_id} (model đầy đủ, dùng lúc làm việc, {self.device}, {torch_dtype})...")
+                self._model = pipeline(
+                    "automatic-speech-recognition", model=model_id, device=device_idx, dtype=torch_dtype
+                )
 
             print(f"[STT] EVA Voice Engine đã sẵn sàng! (Device: {self.device}, chờ: {wake_model_id} [CPU], làm việc: {model_id})")
         except Exception as e:
@@ -385,6 +404,11 @@ class VoiceEngine:
                 return None
 
             print(f"[STT] {text_clean}")
+            if self.on_speech_heard:
+                try:
+                    self.on_speech_heard()
+                except Exception:
+                    pass
             self._last_transcript      = text_clean
             self._last_transcript_time = now
 
@@ -404,36 +428,13 @@ class VoiceEngine:
                     pass
             return None
 
-    def transcribe_uploaded_audio(self, wav_bytes):
-        """Nhận file WAV (16-bit PCM, mono, 16kHz — đúng định dạng frontend dashboard tự đóng
-        gói trước khi upload, xem core/web_interface.py route /api/voice) rồi chuyển thành chữ.
-        Dùng cho giọng nói ghi từ trình duyệt (source="web_voice") — khác _record_once ở chỗ
-        không qua VAD/wakeword, coi như đã là lệnh thật (giống cách source="text" bỏ qua
-        wakeword), luôn dùng model đầy đủ (self._model) chứ không dùng model nhẹ lúc chờ.
-        Trả về: None nếu STT chưa nạp xong, "" nếu chỉ là im lặng/nhiễu, hoặc câu đã nhận dạng."""
-        if self._model is None:
-            return None
-
-        import wave
-        import io
-
-        with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
-            raw = wf.readframes(wf.getnframes())
-
-        audio_np = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
-        max_vol = np.max(np.abs(audio_np)) if audio_np.size else 0.0
-        if max_vol < 0.05:
-            return ""
-        audio_np = audio_np / max_vol
-
-        with self._model_lock:
-            # return_timestamps=True bắt buộc phải có khi audio dài hơn 30s (Whisper tự chuyển
-            # sang chế độ "long-form generation" và raise ValueError nếu thiếu cờ này) — giọng
-            # ghi từ trình duyệt (khác mic vật lý ở _record_once) không có giới hạn 10s nên có
-            # thể dài hơn 30s tuỳ Sơn ghi bao lâu. Không ảnh hưởng audio ngắn, chỉ thêm timestamp
-            # từng đoạn vào kết quả (không dùng tới, "text" vẫn là câu đầy đủ như cũ).
-            result = self._model({"array": audio_np, "sampling_rate": 16000}, return_timestamps=True)
-        return result.get("text", "").strip()
+    def open_session(self):
+        """Mở phiên lắng nghe mà không cần từ đánh thức — dùng khi EVA chủ động hỏi (vd "uống
+        thuốc chưa ạ?") để người dùng trả lời thẳng được. Phiên đóng như bình thường khi nghe
+        từ tạm biệt."""
+        if not self._session_active:
+            self._session_active = True
+            print("[STT] EVA vừa hỏi — mở phiên lắng nghe, không cần từ đánh thức.")
 
     def _trigger_clap_wake(self):
         """Đánh thức bằng vỗ tay/búng tay — tương đương nhánh đánh thức thành công bằng
@@ -471,6 +472,19 @@ class VoiceEngine:
                     self.on_interrupt()
                 except Exception:
                     pass
+            return None
+
+        # Kêu cứu: xử lý trước mọi thứ khác, không cần từ đánh thức, không qua AI (model 14B
+        # offline có thể mất vài giây — tình huống khẩn cấp không chờ được). Mở luôn phiên để
+        # người dùng nói tiếp được mà không phải "dậy đi".
+        if any(w in text_clean for w in self._emergency_words):
+            print(f"[STT] Nghe thấy câu kêu cứu: '{text_clean}'")
+            self._session_active = True
+            if self.on_emergency:
+                try:
+                    self.on_emergency(text_clean)
+                except Exception as e:
+                    print(f"[STT] Lỗi xử lý kêu cứu: {e}")
             return None
 
         if self._session_active:
