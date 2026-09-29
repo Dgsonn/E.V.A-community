@@ -1,15 +1,31 @@
 "use client";
 
 import { useState } from "react";
-import { setToken } from "@/lib/api";
+import { api, setToken } from "@/lib/api";
 
 export function TokenGate({ error, onSubmit }: { error: string | null; onSubmit: () => void }) {
-  const [value, setValue] = useState("");
+  const [pin, setPin] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
-  const submit = () => {
-    if (!value.trim()) return;
-    setToken(value);
-    onSubmit();
+  const submit = async () => {
+    if (pin.trim().length !== 4 || busy) return;
+    setBusy(true);
+    setLocalError(null);
+    try {
+      const result = await api.pair(pin.trim());
+      if (result.status === "ok") {
+        setToken(result.token);
+        onSubmit();
+      } else {
+        setLocalError(result.message);
+        setPin("");
+      }
+    } catch {
+      setLocalError("Không kết nối được tới EVA — kiểm tra lại mạng.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -21,24 +37,29 @@ export function TokenGate({ error, onSubmit }: { error: string | null; onSubmit:
         <div className="font-[family-name:var(--font-display)] font-bold text-lg tracking-[0.2em] text-[var(--cyan)] [text-shadow:0_0_16px_rgba(45,212,255,0.5)]">
           EVA
         </div>
-        <p className="text-sm text-[var(--text-dim)]">
-          Nhập DASHBOARD_TOKEN để điều khiển hệ thống — xem log lúc server khởi động hoặc file .env trên server.
+        <p className="text-base text-[var(--text-dim)]">
+          Nhập mã PIN 4 số hiện trên màn hình máy chủ lúc khởi động (hoặc hỏi người đã cài EVA) để mở khoá.
         </p>
         <input
-          type="password"
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
           autoFocus
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
+          maxLength={4}
+          value={pin}
+          onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, "").slice(0, 4))}
           onKeyDown={(e) => e.key === "Enter" && submit()}
-          placeholder="Dashboard token"
-          className="w-full rounded border border-[var(--border)] bg-[var(--panel-2)] px-3 py-2 text-[var(--text)] text-sm outline-none focus:border-[var(--border-strong)]"
+          placeholder="••••"
+          aria-label="Mã PIN 4 số"
+          className="w-full rounded border border-[var(--border)] bg-[var(--panel-2)] px-3 py-3 text-[var(--text)] text-2xl tracking-[0.5em] text-center outline-none focus:border-[var(--border-strong)]"
         />
-        {error && <p className="text-sm text-[var(--red)]">{error}</p>}
+        {(localError || error) && <p className="text-sm text-[var(--red)]">{localError ?? error}</p>}
         <button
           onClick={submit}
-          className="w-full rounded border border-[var(--border-strong)] bg-[var(--cyan-dim)] text-[var(--cyan)] text-sm font-medium py-2 hover:bg-[var(--border-strong)] transition-colors"
+          disabled={busy || pin.length !== 4}
+          className="w-full rounded border border-[var(--border-strong)] bg-[var(--cyan-dim)] text-[var(--cyan)] text-base font-medium py-3 hover:bg-[var(--border-strong)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
         >
-          Xác nhận
+          {busy ? "Đang kiểm tra..." : "Mở khoá"}
         </button>
       </div>
     </div>

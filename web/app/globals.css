@@ -11,15 +11,30 @@
   --cyan: #2dd4ff;
   --cyan-dim: rgba(45, 212, 255, 0.14);
   --text: #e6f4fa;
-  --text-dim: #6f8ea3;
+  --text-dim: #93b0c2;
   --green: #3ddc84;
   --red: #ff5c5c;
   --font-display: var(--font-display), ui-monospace, monospace;
   --font-body: var(--font-body), system-ui, sans-serif;
+  /* Cỡ chữ tuỳ chỉnh (xem AccessibilityMenu.tsx) — mọi class text-* của Tailwind dùng rem nên
+     đổi font-size gốc ở html là đủ phóng to/thu nhỏ toàn bộ giao diện theo 1 nút bấm duy nhất. */
+  --text-scale: 1;
+}
+
+/* Tương phản cao (xem AccessibilityMenu.tsx) — chỉ cần nâng --text-dim vì đó là màu chữ phụ
+   (nhãn, chú thích) duy nhất có độ tương phản thấp hơn hẳn --text trên nền --bg gần như đen. */
+:root[data-contrast="high"] {
+  --text-dim: #d8e8f0;
+  --border: rgba(45, 212, 255, 0.32);
+  --border-strong: rgba(45, 212, 255, 0.7);
 }
 
 * {
   box-sizing: border-box;
+}
+
+html {
+  font-size: calc(16px * var(--text-scale));
 }
 
 html,

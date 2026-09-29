@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AccessibilityMenu } from "@/components/AccessibilityMenu";
 
 export function TopBar({
   cpu,
@@ -39,6 +40,7 @@ export function TopBar({
           RAM <b className="text-[var(--cyan)]">{Math.round(ram)}%</b>
         </span>
       </div>
+      <AccessibilityMenu />
       <div
         className={`w-2.5 h-2.5 rounded-full transition-all ${
           sessionActive ? "bg-[var(--green)] shadow-[0_0_10px_var(--green)]" : "bg-[var(--cyan-dim)]"

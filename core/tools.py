@@ -407,6 +407,48 @@ TOOL_SPECS = [
         },
         "requires_owner": True,
     },
+    {
+        "name": "read_screen",
+        "description": "Đọc to nội dung đang hiển thị trên cửa sổ đang mở (tiêu đề + chữ nhìn thấy được), giúp người không tự đọc màn hình biết đang xem gì. LƯU Ý: chỉ đọc được ứng dụng Windows cổ điển (Notepad, hộp thoại...) — trình duyệt và ứng dụng hiện đại có thể chỉ đọc được tiêu đề cửa sổ, không đọc được nội dung bên trong.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+        "requires_owner": False,
+    },
+    {
+        "name": "dictate_text",
+        "description": "Gõ hộ (đọc chính tả) một đoạn văn bản vào đúng ô đang được focus trên cửa sổ đang mở — dùng khi được yêu cầu 'gõ giúp tôi...', 'viết giúp tôi...'. Người dùng phải tự bấm/chọn đúng ô cần gõ trước khi nhờ EVA gõ hộ.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "Nội dung cần gõ vào, nguyên văn"},
+            },
+            "required": ["text"],
+        },
+        "requires_owner": True,
+    },
+    {
+        "name": "browser_navigate",
+        "description": "Điều khiển trình duyệt đang mở bằng lệnh nói cơ bản: quay lại trang trước, hoặc cuộn trang lên/xuống — dùng khi được yêu cầu 'quay lại', 'cuộn xuống', 'cuộn lên'.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "description": "'back' (quay lại), 'scroll_down' (cuộn xuống) hoặc 'scroll_up' (cuộn lên)"},
+            },
+            "required": ["action"],
+        },
+        "requires_owner": True,
+    },
+    {
+        "name": "browser_find_on_page",
+        "description": "Tìm 1 đoạn chữ trên trang web/tài liệu đang mở (giống bấm Ctrl+F rồi gõ tìm) — dùng khi được yêu cầu 'tìm chữ ... trên trang này'.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Nội dung cần tìm trên trang hiện tại"},
+            },
+            "required": ["query"],
+        },
+        "requires_owner": True,
+    },
 ]
 
 _REQUIRES_OWNER = {spec["name"]: spec["requires_owner"] for spec in TOOL_SPECS}
@@ -446,6 +488,14 @@ def execute(name, args, is_owner=None, source=None):
     if _REQUIRES_OWNER.get(name) and is_owner is not True:
         return "Từ chối: chưa xác minh được chủ nhân qua giọng nói, chạy enroll_voice.py để đăng ký."
 
+    if name == "read_screen":
+        return _read_screen_content()
+    if name == "dictate_text":
+        return _dictate_text(args.get("text", ""))
+    if name == "browser_navigate":
+        return _browser_navigate(args.get("action", ""))
+    if name == "browser_find_on_page":
+        return _browser_find_on_page(args.get("query", ""))
     if name == "open_url":
         return _open_url(args.get("url", ""), source=source)
     if name == "get_last_login":
@@ -761,6 +811,150 @@ _KEYEVENTF_KEYUP = 0x2
 def _send_media_key(vk):
     ctypes.windll.user32.keybd_event(vk, 0, _KEYEVENTF_EXTENDEDKEY, 0)
     ctypes.windll.user32.keybd_event(vk, 0, _KEYEVENTF_EXTENDEDKEY | _KEYEVENTF_KEYUP, 0)
+
+
+# --- Điều khiển máy tính sâu hơn (đọc màn hình / gõ hộ / điều hướng trình duyệt) — dùng thẳng
+# ctypes (Win32 API) như _send_media_key ở trên, không thêm thư viện GUI automation nặng
+# (pywinauto/pyautogui) chỉ cho vài thao tác đơn giản này.
+_VK_CONTROL = 0x11
+_VK_MENU = 0x12  # Alt
+_VK_LEFT = 0x25
+_VK_PRIOR = 0x21  # Page Up
+_VK_NEXT = 0x22  # Page Down
+_VK_RETURN = 0x0D
+_VK_V = 0x56
+_VK_F = 0x46
+_CF_UNICODETEXT = 13
+_GMEM_MOVEABLE = 0x0002
+
+
+def _press_key(vk):
+    ctypes.windll.user32.keybd_event(vk, 0, 0, 0)
+    ctypes.windll.user32.keybd_event(vk, 0, _KEYEVENTF_KEYUP, 0)
+
+
+def _press_combo(*vks):
+    """Nhấn tổ hợp phím (vd Ctrl+V) — nhấn xuống theo thứ tự rồi nhả ra theo thứ tự ngược lại,
+    giống thao tác tay thật."""
+    user32 = ctypes.windll.user32
+    for vk in vks:
+        user32.keybd_event(vk, 0, 0, 0)
+    for vk in reversed(vks):
+        user32.keybd_event(vk, 0, _KEYEVENTF_KEYUP, 0)
+
+
+def _set_clipboard_text(text):
+    """Ghi text Unicode vào clipboard bằng ctypes thuần — dùng cho dictate_text/browser_find_on_page
+    dán qua Ctrl+V thay vì gõ từng ký tự (SendInput gõ trực tiếp không đáng tin cậy với dấu tiếng
+    Việt), đây là cách các công cụ đọc chính tả trên Windows vẫn hay dùng."""
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    data = text.encode("utf-16-le") + b"\x00\x00"
+    if not user32.OpenClipboard(0):
+        raise OSError("Không mở được clipboard (có thể đang bị chương trình khác giữ)")
+    try:
+        user32.EmptyClipboard()
+        h_mem = kernel32.GlobalAlloc(_GMEM_MOVEABLE, len(data))
+        ptr = kernel32.GlobalLock(h_mem)
+        ctypes.memmove(ptr, data, len(data))
+        kernel32.GlobalUnlock(h_mem)
+        user32.SetClipboardData(_CF_UNICODETEXT, h_mem)
+    finally:
+        user32.CloseClipboard()
+
+
+def _get_foreground_window_text():
+    """Tiêu đề + chữ nhìn thấy được của cửa sổ đang active — EnumChildWindows/GetWindowTextW chỉ
+    đọc được control Win32 cổ điển (Notepad, hộp thoại...), KHÔNG đọc được nội dung tự vẽ của
+    trình duyệt/app hiện đại (Chrome, Electron...) vì chúng không expose text qua window text API,
+    cần UI Automation COM đầy đủ mới đọc được — chưa làm vì phức tạp hơn nhiều so với lợi ích
+    trước mắt. Trả về (title, [đoạn text tìm được])."""
+    user32 = ctypes.windll.user32
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return None, []
+
+    length = user32.GetWindowTextLengthW(hwnd)
+    buf = ctypes.create_unicode_buffer(length + 1)
+    user32.GetWindowTextW(hwnd, buf, length + 1)
+    title = buf.value
+
+    texts = []
+
+    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    def _enum_child(child_hwnd, _lparam):
+        clen = user32.GetWindowTextLengthW(child_hwnd)
+        if clen > 0:
+            cbuf = ctypes.create_unicode_buffer(clen + 1)
+            user32.GetWindowTextW(child_hwnd, cbuf, clen + 1)
+            text = cbuf.value.strip()
+            if text and text not in texts:
+                texts.append(text)
+        return True
+
+    user32.EnumChildWindows(hwnd, _enum_child, 0)
+    return title, texts
+
+
+def _read_screen_content():
+    try:
+        title, texts = _get_foreground_window_text()
+    except Exception as e:
+        return f"Lỗi khi đọc màn hình: {e}"
+    if title is None:
+        return "Lỗi: không xác định được cửa sổ đang mở."
+    content = " · ".join(texts)[:800]
+    if not content:
+        return (
+            f'Cửa sổ đang mở: "{title}". Không đọc được nội dung chi tiết bên trong cửa sổ này '
+            "(có thể là trình duyệt hoặc ứng dụng hiện đại) — chỉ đọc được tiêu đề."
+        )
+    return f'Cửa sổ đang mở: "{title}". Nội dung nhìn thấy: {content}'
+
+
+def _dictate_text(text):
+    if not text:
+        return "Lỗi: thiếu nội dung cần gõ."
+    try:
+        _set_clipboard_text(text)
+        time.sleep(0.05)
+        _press_combo(_VK_CONTROL, _VK_V)
+        return f'Đã gõ vào cửa sổ đang mở: "{text}"'
+    except Exception as e:
+        return f"Lỗi khi gõ hộ: {e}"
+
+
+def _browser_navigate(action):
+    action = (action or "").strip().lower()
+    try:
+        if action == "back":
+            _press_combo(_VK_MENU, _VK_LEFT)
+            return "Đã quay lại trang trước."
+        if action == "scroll_down":
+            _press_key(_VK_NEXT)
+            return "Đã cuộn xuống."
+        if action == "scroll_up":
+            _press_key(_VK_PRIOR)
+            return "Đã cuộn lên."
+    except Exception as e:
+        return f"Lỗi khi điều khiển trình duyệt: {e}"
+    return "Lỗi: action phải là 'back', 'scroll_down' hoặc 'scroll_up'."
+
+
+def _browser_find_on_page(query):
+    if not query:
+        return "Lỗi: thiếu nội dung cần tìm."
+    try:
+        _press_combo(_VK_CONTROL, _VK_F)
+        time.sleep(0.15)  # đợi hộp tìm kiếm của trình duyệt hiện lên trước khi dán
+        _set_clipboard_text(query)
+        time.sleep(0.05)
+        _press_combo(_VK_CONTROL, _VK_V)
+        time.sleep(0.05)
+        _press_key(_VK_RETURN)
+        return f'Đã tìm "{query}" trên trang hiện tại.'
+    except Exception as e:
+        return f"Lỗi khi tìm trên trang: {e}"
 
 
 def _adjust_volume(action):

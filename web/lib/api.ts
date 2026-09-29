@@ -74,6 +74,15 @@ export type VoiceResult =
   | { status: "timeout"; transcript: string; message: string }
   | { status: "empty_transcript" | "stt_not_ready" | "error"; message: string };
 
+export type PairResult = { status: "ok"; token: string } | { status: "error"; message: string };
+
+export type FamilyStatusResponse = {
+  session_active: boolean;
+  uptime_secs: number;
+  last_activity: string | null;
+  recent_notes: { content: string; timestamp: string }[];
+};
+
 async function getJson<T>(path: string): Promise<T> {
   const resp = await authFetch(path);
   return resp.json();
@@ -119,4 +128,24 @@ export const api = {
     }),
 
   shutdown: () => authFetch("/api/shutdown", { method: "POST" }),
+
+  // Ghép nối lần đầu bằng PIN 4 số (xem TokenGate.tsx) — không qua authFetch vì chưa có token
+  // lúc này, đúng PIN thì server trả về token thật để lưu lại như trước.
+  pair: async (pin: string): Promise<PairResult> => {
+    const resp = await fetch(`${API_BASE}/api/pair`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin }),
+    });
+    return resp.json();
+  },
+
+  // Trang /family (web/app/family/page.tsx) dùng FAMILY_TOKEN riêng, không phải DASHBOARD_TOKEN.
+  getFamilyStatus: async (token: string): Promise<FamilyStatusResponse> => {
+    const resp = await fetch(`${API_BASE}/api/family_status`, {
+      headers: { "X-Family-Token": token },
+    });
+    if (!resp.ok) throw new UnauthorizedError("Link không hợp lệ hoặc đã hết hạn.");
+    return resp.json();
+  },
 };

@@ -2,6 +2,7 @@ import base64
 import os
 import secrets
 import threading
+import time
 from dotenv import load_dotenv, set_key
 from flask import Flask, request, jsonify, send_from_directory
 
@@ -31,6 +32,41 @@ def _get_or_create_dashboard_token():
     return token
 
 
+def _get_or_create_dashboard_pin():
+    """Mã PIN 4 số để ghép nối dashboard lần đầu (xem route /api/pair) — thay cho việc phải dán
+    DASHBOARD_TOKEN dài từ log/.env, dễ đọc/gõ hơn nhiều cho người không rành công nghệ. PIN chỉ
+    dùng MỘT LẦN lúc ghép nối, sau đó dashboard tự lưu lại token thật (dài) như trước — không đổi
+    cơ chế xác thực cho các API còn lại, chỉ đổi cách lấy được token lần đầu."""
+    load_dotenv(ENV_PATH)
+    pin = os.getenv("DASHBOARD_PIN")
+    if pin:
+        return pin
+    pin = f"{secrets.randbelow(10000):04d}"
+    try:
+        set_key(ENV_PATH, "DASHBOARD_PIN", pin)
+    except OSError as e:
+        print(f"[WEB] Không ghi được DASHBOARD_PIN vào .env ({e}) — PIN chỉ dùng cho phiên này.")
+    print(f"[WEB] Mã PIN ghép nối dashboard: {pin} — đọc mã này cho người dùng để họ tự ghép nối lần đầu, không cần dán token dài.")
+    return pin
+
+
+def _get_or_create_family_token():
+    """Token riêng, quyền hạn hẹp hơn hẳn DASHBOARD_TOKEN — chỉ dùng được cho /api/family_status
+    (xem route bên dưới), không điều khiển được gì và không đọc được nội dung hội thoại. Gửi kèm
+    trong link chia sẻ cho người thân (xem WebInterface.start()), không cần họ tự đăng nhập gì cả."""
+    load_dotenv(ENV_PATH)
+    token = os.getenv("FAMILY_TOKEN")
+    if token:
+        return token
+    token = secrets.token_urlsafe(24)
+    try:
+        set_key(ENV_PATH, "FAMILY_TOKEN", token)
+    except OSError as e:
+        print(f"[WEB] Không ghi được FAMILY_TOKEN vào .env ({e}) — token chỉ dùng cho phiên này.")
+    print(f"[WEB] Đã tạo FAMILY_TOKEN mới cho trang người thân: {token}")
+    return token
+
+
 class WebInterface:
     def __init__(self, on_user_input, db, get_status, on_shutdown=None, on_revoke_voice=None,
                  on_laptop_heartbeat=None, on_laptop_poll=None, on_laptop_result=None,
@@ -48,6 +84,10 @@ class WebInterface:
         self.port = port
         self.app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
         self._token = _get_or_create_dashboard_token()
+        self._pin = _get_or_create_dashboard_pin()
+        self._family_token = _get_or_create_family_token()
+        self._pair_attempts = {}  # ip -> list[timestamp các lần nhập sai PIN gần đây]
+        self._pair_lock = threading.Lock()
         if not os.path.isdir(FRONTEND_DIR):
             print(f"[WEB] Chưa build giao diện — chạy 'npm run build' trong web/ (thiếu {FRONTEND_DIR})")
         self._setup_routes()
@@ -60,7 +100,9 @@ class WebInterface:
             # Chỉ chặn /api/* — static file (trang, JS, CSS của dashboard) vẫn public vì tự
             # thân không lộ gì, chặn ở tầng gọi API là đủ (không có token thì không ra lệnh/
             # đọc được dữ liệu gì cả). so sánh bằng secrets.compare_digest chống timing attack.
-            if request.path.startswith("/api/"):
+            # /api/pair và /api/family_status tự xác thực riêng (PIN / FAMILY_TOKEN), không
+            # dùng DASHBOARD_TOKEN — bỏ qua check chung ở đây cho 2 route đó.
+            if request.path.startswith("/api/") and request.path not in ("/api/pair", "/api/family_status"):
                 token = request.headers.get("X-Auth-Token", "")
                 if not secrets.compare_digest(token, self._token):
                     return jsonify({"status": "unauthorized"}), 401
@@ -74,6 +116,63 @@ class WebInterface:
             resp = send_from_directory(FRONTEND_DIR, "index.html")
             resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
             return resp
+
+        @app.route("/family")
+        def family_page():
+            # Trang riêng cho người thân (web/app/family/page.tsx) — Next.js static export với
+            # trailingSlash mặc định (false) sinh ra "family.html" ở gốc out/, không phải
+            # "family/index.html" — xác nhận bằng cách build thật rồi xem out/ sinh ra gì, không
+            # đoán theo lý thuyết. Cùng kiểu cache-busting với "/".
+            resp = send_from_directory(FRONTEND_DIR, "family.html")
+            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            return resp
+
+        _PAIR_MAX_ATTEMPTS = 5
+        _PAIR_WINDOW_SECS = 300
+
+        @app.route("/api/pair", methods=["POST"])
+        def pair():
+            # Ghép nối lần đầu bằng PIN 4 số thay vì dán DASHBOARD_TOKEN dài — đúng PIN thì trả
+            # về token thật để dashboard lưu lại dùng lâu dài (xem web/components/TokenGate.tsx).
+            # Giới hạn số lần thử theo IP để chặn dò PIN 4 số (chỉ 10.000 khả năng).
+            ip = request.remote_addr or "unknown"
+            now = time.time()
+            with self._pair_lock:
+                attempts = [t for t in self._pair_attempts.get(ip, []) if now - t < _PAIR_WINDOW_SECS]
+                if len(attempts) >= _PAIR_MAX_ATTEMPTS:
+                    self._pair_attempts[ip] = attempts
+                    return jsonify({"status": "error", "message": "Nhập sai quá nhiều lần, thử lại sau vài phút."}), 429
+
+            data = request.get_json(force=True, silent=True) or {}
+            pin = str(data.get("pin", "")).strip()
+            if pin and secrets.compare_digest(pin, self._pin):
+                with self._pair_lock:
+                    self._pair_attempts.pop(ip, None)
+                return jsonify({"status": "ok", "token": self._token})
+
+            with self._pair_lock:
+                attempts.append(now)
+                self._pair_attempts[ip] = attempts
+            return jsonify({"status": "error", "message": "Mã PIN không đúng."}), 401
+
+        @app.route("/api/family_status")
+        def family_status():
+            # Tách hẳn khỏi X-Auth-Token chính — chỉ trả dữ liệu tóm tắt, KHÔNG có nội dung hội
+            # thoại, KHÔNG điều khiển được gì (không camera/shutdown/revoke...).
+            token = request.headers.get("X-Family-Token", "")
+            if not secrets.compare_digest(token, self._family_token):
+                return jsonify({"status": "unauthorized"}), 401
+
+            data = self.get_status()
+            last_rows = self.db.get_conversation_history(limit=1)
+            last_activity = str(last_rows[0][2]) if last_rows else None
+            notes = self.db.get_notes(limit=5)
+            return jsonify({
+                "session_active": data.get("session_active", False),
+                "uptime_secs": data.get("uptime_secs", 0),
+                "last_activity": last_activity,
+                "recent_notes": [{"content": content, "timestamp": str(ts)} for content, ts in notes],
+            })
 
         @app.route("/api/message", methods=["POST"])
         def message():
@@ -204,6 +303,7 @@ class WebInterface:
         )
         t.start()
         print(f"[WEB] Dashboard điều khiển từ xa: http://<IP-máy-bạn>:{self.port}")
+        print(f"[WEB] Link cho người thân (chỉ xem, không điều khiển được): http://<IP-máy-bạn>:{self.port}/family?token={self._family_token}")
 
         # Listener HTTPS riêng (cổng khác) bằng cert Tailscale (xem `tailscale cert`) — trình
         # duyệt (Safari/Chrome) chỉ cho phép mic (getUserMedia) qua "secure context" tức HTTPS
